@@ -24,7 +24,50 @@ DEFAULT_VOICES = {
     "Bowen":  "zh-Bowen_man",
     "Xinran": "zh-Xinran_woman",
     "Lobato": "es-Lobato_man",
+    "Lobato2": "Extract_Lobato",
 }
+
+SUPPORTED_OUTPUT_FORMATS = {".wav", ".mp3", ".flac", ".ogg"}
+
+
+def convert_audio(input_path, output_path):
+    """
+    Convierte un archivo de audio WAV al formato indicado por la extensión de output_path.
+
+    Args:
+        input_path: Ruta al archivo WAV de entrada
+        output_path: Ruta de salida (la extensión determina el formato)
+
+    Returns:
+        bool: True si la conversión fue exitosa
+    """
+    import torchaudio
+
+    ext = Path(output_path).suffix.lower()
+
+    if ext == ".wav":
+        # No necesita conversión, mueve directamente
+        import shutil
+        shutil.move(input_path, output_path)
+        return True
+
+    if ext not in SUPPORTED_OUTPUT_FORMATS:
+        print(f"⚠️  Formato '{ext}' no soportado. Formatos válidos: {', '.join(SUPPORTED_OUTPUT_FORMATS)}")
+        print(f"   Guardando como WAV en su lugar: {output_path}")
+        import shutil
+        shutil.move(input_path, str(Path(output_path).with_suffix(".wav")))
+        return True
+
+    try:
+        print(f" Convirtiendo a {ext.upper()[1:]}...")
+        waveform, sample_rate = torchaudio.load(input_path)
+        torchaudio.save(output_path, waveform, sample_rate)
+        os.remove(input_path)
+        return True
+    except Exception as e:
+        print(f"❌ Error al convertir a {ext}: {e}")
+        print(f"   El audio WAV original está en: {input_path}")
+        return False
 
 
 def check_dependencies():
@@ -119,6 +162,169 @@ def extract_audio_from_video(video_path, output_audio_path):
     except Exception as e:
         print(f"❌ Error al extraer audio del video: {e}")
         return False
+
+
+def check_ffmpeg():
+    """Verifica que ffmpeg esté instalado, necesario para procesar audio de YouTube"""
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def check_ytdlp():
+    """Verifica que yt-dlp esté instalado"""
+    try:
+        import yt_dlp  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def time_to_seconds(time_str):
+    """
+    Convierte un string HH:MM:SS a segundos totales.
+
+    Args:
+        time_str: Tiempo en formato HH:MM:SS
+
+    Returns:
+        int: Segundos totales
+
+    Raises:
+        ValueError: Si el formato no es válido
+    """
+    parts = time_str.strip().split(":")
+    if len(parts) != 3:
+        raise ValueError(f"Formato de tiempo inválido: '{time_str}'. Usa HH:MM:SS")
+    try:
+        hours, minutes, seconds = int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        raise ValueError(f"Formato de tiempo inválido: '{time_str}'. Usa HH:MM:SS con números enteros")
+    if minutes >= 60 or seconds >= 60:
+        raise ValueError(f"Minutos y segundos deben ser menores que 60: '{time_str}'")
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def extract_voice_from_youtube(youtube_url, start_time, end_time, voice_name, voices_dir):
+    """
+    Descarga un fragmento de audio de un vídeo de YouTube y lo guarda como preset de voz.
+
+    Args:
+        youtube_url: URL del vídeo de YouTube
+        start_time: Tiempo de inicio en formato HH:MM:SS
+        end_time: Tiempo de fin en formato HH:MM:SS
+        voice_name: Nombre con el que guardar la voz (sin extensión)
+        voices_dir: Directorio donde guardar el archivo de voz
+
+    Returns:
+        str: Nombre de la voz guardada, o None si hubo un error
+    """
+    # Verifica dependencias
+    if not check_ytdlp():
+        print("❌ yt-dlp no está instalado.")
+        print("   Instálalo con: pip install yt-dlp")
+        return None
+
+    if not check_ffmpeg():
+        print("❌ FFmpeg no está instalado, es necesario para recortar el audio.")
+        print("   Instálalo con: conda install ffmpeg -c conda-forge")
+        return None
+
+    # Valida y convierte los tiempos
+    try:
+        start_seconds = time_to_seconds(start_time)
+        end_seconds = time_to_seconds(end_time)
+    except ValueError as e:
+        print(f"❌ Error en el formato de tiempo: {e}")
+        return None
+
+    if end_seconds <= start_seconds:
+        print(f"❌ El tiempo de fin ({end_time}) debe ser mayor que el de inicio ({start_time})")
+        return None
+
+    duration = end_seconds - start_seconds
+    print(f"\n Extrayendo fragmento de voz desde YouTube...")
+    print(f" URL:      {youtube_url}")
+    print(f" Inicio:   {start_time}  ({start_seconds}s)")
+    print(f" Fin:      {end_time}  ({end_seconds}s)")
+    print(f" Duración: {duration}s")
+    print(f" Nombre:   {voice_name}")
+
+    temp_dir = Path("temp_youtube")
+    temp_dir.mkdir(exist_ok=True)
+    temp_full_audio = temp_dir / f"{voice_name}_full.wav"
+    output_path = voices_dir / f"{voice_name}.wav"
+
+    try:
+        # Paso 1: Descarga el audio completo del vídeo con yt-dlp
+        print("\n Descargando audio del vídeo...")
+        import yt_dlp
+
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": str(temp_dir / f"{voice_name}_full.%(ext)s"),
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "wav",
+                "preferredquality": "0",
+            }],
+            "quiet": False,
+            "no_warnings": False,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([youtube_url])
+
+        if not temp_full_audio.exists():
+            print(f"❌ No se encontró el archivo de audio descargado en: {temp_full_audio}")
+            return None
+
+        print("✅ Audio descargado correctamente")
+
+        # Paso 2: Recorta el fragmento con ffmpeg y resamplea a 24kHz mono
+        print(f" Recortando fragmento {start_time} → {end_time}...")
+        cmd = [
+            "ffmpeg",
+            "-i", str(temp_full_audio),
+            "-ss", str(start_seconds),
+            "-t", str(duration),
+            "-vn",
+            "-acodec", "pcm_s16le",
+            "-ar", "24000",
+            "-ac", "1",
+            str(output_path),
+            "-y"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"❌ Error al recortar el audio con ffmpeg:")
+            print(result.stderr)
+            return None
+
+        print(f"✅ Fragmento recortado correctamente")
+
+        # Limpia el archivo temporal
+        if temp_full_audio.exists():
+            temp_full_audio.unlink()
+        if temp_dir.exists() and not any(temp_dir.iterdir()):
+            temp_dir.rmdir()
+
+        print(f"✅ Voz guardada en: {output_path}")
+        print(f"   Usa '--voice-name {voice_name}' para generar audio con esta voz")
+
+        return voice_name
+
+    except Exception as e:
+        print(f"❌ Error al extraer voz de YouTube: {e}")
+        import traceback
+        traceback.print_exc()
+        # Limpia archivos temporales en caso de error
+        if temp_full_audio.exists():
+            temp_full_audio.unlink()
+        return None
 
 
 def setup_vibevoice_environment(repo_path):
@@ -229,10 +435,16 @@ def generate_speech_vibevoice(text, output_path,
         print(f"   Alias soportados:  {', '.join(DEFAULT_VOICES.keys())}")
         return False
 
+    output_ext = Path(output_path).suffix.lower()
+    if output_ext not in SUPPORTED_OUTPUT_FORMATS:
+        print(f"⚠️  Formato '{output_ext}' no soportado. Usando .wav por defecto.")
+        output_path = str(Path(output_path).with_suffix(".wav"))
+
     print(f"\n️  Generando audio...")
     print(f" Texto:  {text[:100]}{'...' if len(text) > 100 else ''}")
     print(f" Voz:    {resolved_voice}")
     print(f" Modelo: {model_name}")
+    print(f" Formato: {Path(output_path).suffix.upper()[1:]}")
 
     # Escribe el texto en el formato que espera el script de VibeVoice
     temp_txt = "temp_input.txt"
@@ -266,12 +478,13 @@ def generate_speech_vibevoice(text, output_path,
     if result.returncode == 0:
         generated_file = output_dir / "temp_input_generated.wav"
         if generated_file.exists():
-            import shutil
-            shutil.move(str(generated_file), output_path)
-            print(f"\n✅ Audio guardado en: {output_path}")
-            if os.path.exists(temp_txt):
-                os.remove(temp_txt)
-            return True
+            if convert_audio(str(generated_file), output_path):
+                print(f"\n✅ Audio guardado en: {output_path}")
+                if os.path.exists(temp_txt):
+                    os.remove(temp_txt)
+                return True
+            else:
+                return False
         else:
             print(f"❌ El script terminó sin errores pero no generó el archivo esperado.")
             return False
@@ -317,14 +530,17 @@ Ejemplos de uso:
   Usar una voz específica:
     python vibevoice_app.py --text "Hello world" --voice-name Maya --output maya.wav
 
-  Añadir voz personalizada desde audio:
+  Extraer voz desde YouTube (HH:MM:SS):
+    python vibevoice_app.py --youtube-voice "https://youtube.com/watch?v=..." --start 00:01:30 --end 00:02:00 --voice-name MiVoz
+
+  Generar audio con voz extraída de YouTube:
+    python vibevoice_app.py --text "Texto de prueba" --voice-name MiVoz --output resultado.mp3
+
+  Añadir voz personalizada desde audio local:
     python vibevoice_app.py --clone-voice mi_voz.wav --voice-name MiVoz
 
-  Añadir voz desde video:
+  Añadir voz desde video local:
     python vibevoice_app.py --clone-voice video.mp4 --voice-name VozVideo
-
-  Generar audio con voz personalizada:
-    python vibevoice_app.py --text "Texto de prueba" --voice-name MiVoz --output resultado.wav
 
   Modo interactivo:
     python vibevoice_app.py --interactive --voice-name Alice
@@ -342,9 +558,15 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
     parser.add_argument("--output", "-o", type=str, default="output.wav",
                         help="Archivo de salida (default: output.wav)")
     parser.add_argument("--clone-voice", "-c", type=str,
-                        help="Archivo de audio/video para añadir como voz de referencia")
+                        help="Archivo de audio/video local para añadir como voz de referencia")
+    parser.add_argument("--youtube-voice", "-y", type=str,
+                        help="URL de YouTube de la que extraer la voz de referencia")
+    parser.add_argument("--start", type=str, default=None,
+                        help="Tiempo de inicio del fragmento en formato HH:MM:SS (para --youtube-voice)")
+    parser.add_argument("--end", type=str, default=None,
+                        help="Tiempo de fin del fragmento en formato HH:MM:SS (para --youtube-voice)")
     parser.add_argument("--voice-name", "-v", type=str, default="Alice",
-                        help="Nombre de la voz a usar (default: Alice). Ver --list-voices.")
+                        help="Nombre de la voz a usar o guardar (default: Alice). Ver --list-voices.")
     parser.add_argument("--model", "-m", type=str,
                         default="microsoft/VibeVoice-1.5b",
                         help="Modelo a usar (default: microsoft/VibeVoice-1.5b)")
@@ -371,8 +593,34 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
 
     voice_name = args.voice_name
 
-    # Clona/importa voz personalizada si se especifica
-    if args.clone_voice:
+    # Extrae voz desde YouTube
+    if args.youtube_voice:
+        if not args.start or not args.end:
+            print("❌ Debes especificar --start y --end junto con --youtube-voice")
+            print("   Ejemplo: --start 00:01:30 --end 00:02:00")
+            sys.exit(1)
+
+        extracted = extract_voice_from_youtube(
+            youtube_url=args.youtube_voice,
+            start_time=args.start,
+            end_time=args.end,
+            voice_name=args.voice_name,
+            voices_dir=voices_dir,
+        )
+        if extracted:
+            voice_name = extracted
+        else:
+            print("❌ No se pudo extraer la voz desde YouTube")
+            sys.exit(1)
+
+        print(f"\n✅ Voz '{voice_name}' lista para usar.")
+        print(f"   Genera audio con: python vibevoice_app.py --text \"Tu texto\" --voice-name {voice_name}")
+
+        if not args.text and not args.interactive:
+            return
+
+    # Clona voz desde archivo local
+    elif args.clone_voice:
         reference_audio = args.clone_voice
 
         if reference_audio.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv')):
@@ -397,7 +645,6 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
         print(f"\n✅ Voz '{voice_name}' lista para usar.")
         print(f"   Genera audio con: python vibevoice_app.py --text \"Tu texto\" --voice-name {voice_name}")
 
-        # Si no hay texto ni modo interactivo, termina aquí
         if not args.text and not args.interactive:
             return
 
@@ -406,6 +653,8 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
         print("\n" + "=" * 70)
         print(" MODO INTERACTIVO  (escribe 'salir' para terminar)")
         print("=" * 70 + "\n")
+
+        output_ext = Path(args.output).suffix or ".wav"
 
         counter = 1
         while True:
@@ -420,10 +669,10 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
                     print("⚠️  El texto no puede estar vacío\n")
                     continue
 
-                output_file = f"output_{counter}.wav"
+                output_file = f"output_{counter}{output_ext}"
                 if generate_speech_vibevoice(text, output_file, args.model,
-                                              voice_name, repo_path,
-                                              args.disable_prefill):
+                                             voice_name, repo_path,
+                                             args.disable_prefill):
                     counter += 1
                     print(f" Guardado: {output_file}\n")
 
@@ -433,12 +682,12 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
 
     elif args.text:
         if generate_speech_vibevoice(args.text, args.output, args.model,
-                                      voice_name, repo_path,
-                                      args.disable_prefill):
+                                     voice_name, repo_path,
+                                     args.disable_prefill):
             print("✨ Proceso completado exitosamente")
 
     else:
-        print("\n⚠️  Especifica --text, --interactive, --clone-voice o --list-voices")
+        print("\n⚠️  Especifica --text, --interactive, --clone-voice, --youtube-voice o --list-voices")
         print("   Usa --help para ver todos los comandos disponibles")
 
 
