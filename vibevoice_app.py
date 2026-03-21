@@ -12,6 +12,8 @@ import subprocess
 from pathlib import Path
 
 
+sys.stdout.reconfigure(encoding='utf-8')
+
 # Voces predeterminadas disponibles en el repositorio
 DEFAULT_VOICES = {
     "Alice":  "en-Alice_woman",
@@ -254,22 +256,31 @@ def extract_voice_from_youtube(youtube_url, start_time, end_time, voice_name, vo
 
     temp_dir = Path("temp_youtube")
     temp_dir.mkdir(exist_ok=True)
-    temp_full_audio = temp_dir / f"{voice_name}_full.wav"
+    
+    # Nombre fijo para evitar problemas
+    temp_audio_stem = "yt_download_temp"
+    temp_full_audio = temp_dir / f"{temp_audio_stem}.wav"
     output_path = voices_dir / f"{voice_name}.wav"
 
+    # Limpia descargas anteriores
+    for old_file in temp_dir.glob(f"{temp_audio_stem}*"):
+        old_file.unlink()
+
     try:
-        # Paso 1: Descarga el audio completo del vídeo con yt-dlp
-        print("\n Descargando audio del vídeo...")
+        print("\n Paso 1/2: Descargando audio del vídeo...")
         import yt_dlp
 
+        # ⚠️ SOLUCIÓN: Usa cookies del navegador para evitar bloqueo de YouTube
         ydl_opts = {
             "format": "bestaudio/best",
-            "outtmpl": str(temp_dir / f"{voice_name}_full.%(ext)s"),
+            "outtmpl": str(temp_dir / f"{temp_audio_stem}.%(ext)s"),
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "wav",
                 "preferredquality": "0",
             }],
+            # ✅ Usa cookies del navegador Chrome (cambia si usas otro navegador)
+            "cookiesfrombrowser": ("chrome",),  # Opciones: chrome, firefox, edge, safari, opera, brave
             "quiet": False,
             "no_warnings": False,
         }
@@ -277,14 +288,36 @@ def extract_voice_from_youtube(youtube_url, start_time, end_time, voice_name, vo
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
 
+        # Busca el archivo descargado
+        downloaded_files = list(temp_dir.glob(f"{temp_audio_stem}*"))
+        wav_files = [f for f in downloaded_files if f.suffix.lower() == ".wav"]
+
+        if not wav_files:
+            print(f"⚠️  No se encontró .wav directamente. Archivos: {[f.name for f in downloaded_files]}")
+            if downloaded_files:
+                source_file = downloaded_files[0]
+                print(f" Convirtiendo {source_file.name} a WAV...")
+                convert_cmd = [
+                    "ffmpeg", "-i", str(source_file),
+                    "-acodec", "pcm_s16le",
+                    str(temp_full_audio), "-y"
+                ]
+                subprocess.run(convert_cmd, capture_output=True, check=True)
+                source_file.unlink()
+            else:
+                print("❌ No se descargó ningún archivo. Verifica la URL.")
+                return None
+        else:
+            temp_full_audio = wav_files[0]
+
         if not temp_full_audio.exists():
-            print(f"❌ No se encontró el archivo de audio descargado en: {temp_full_audio}")
+            print(f"❌ No se encontró el archivo de audio descargado.")
             return None
 
         print("✅ Audio descargado correctamente")
 
-        # Paso 2: Recorta el fragmento con ffmpeg y resamplea a 24kHz mono
-        print(f" Recortando fragmento {start_time} → {end_time}...")
+        # Paso 2: Recorta el fragmento con ffmpeg
+        print(f"\n Paso 2/2: Recortando fragmento {start_time} → {end_time}...")
         cmd = [
             "ffmpeg",
             "-i", str(temp_full_audio),
@@ -306,24 +339,42 @@ def extract_voice_from_youtube(youtube_url, start_time, end_time, voice_name, vo
 
         print(f"✅ Fragmento recortado correctamente")
 
-        # Limpia el archivo temporal
-        if temp_full_audio.exists():
-            temp_full_audio.unlink()
+        # Limpia archivos temporales
+        for f in temp_dir.glob(f"{temp_audio_stem}*"):
+            f.unlink()
         if temp_dir.exists() and not any(temp_dir.iterdir()):
             temp_dir.rmdir()
 
-        print(f"✅ Voz guardada en: {output_path}")
+        print(f"\n✅ Voz guardada en: {output_path}")
         print(f"   Usa '--voice-name {voice_name}' para generar audio con esta voz")
 
         return voice_name
 
     except Exception as e:
         print(f"❌ Error al extraer voz de YouTube: {e}")
+        
+        # Si el error es de autenticación, da instrucciones detalladas
+        error_str = str(e)
+        if "bot" in error_str.lower() or "sign in" in error_str.lower():
+            print("\n⚠️  YouTube está bloqueando la descarga.")
+            print("\n Solución: Asegúrate de estar usando cookies de tu navegador.")
+            print("   El código ya está configurado para usar cookies de Chrome.")
+            print("\n Si usas otro navegador, edita vibevoice_app.py y cambia:")
+            print('   "cookiesfrombrowser": ("chrome",)  # Cambiar a: firefox, edge, safari, etc.')
+            print("\n Si el problema persiste:")
+            print("   1. Abre YouTube en tu navegador y asegúrate de estar logueado")
+            print("   2. Cierra completamente el navegador")
+            print("   3. Vuelve a intentar")
+        
         import traceback
         traceback.print_exc()
+        
         # Limpia archivos temporales en caso de error
-        if temp_full_audio.exists():
-            temp_full_audio.unlink()
+        for f in temp_dir.glob(f"{temp_audio_stem}*"):
+            try:
+                f.unlink()
+            except Exception:
+                pass
         return None
 
 
@@ -412,7 +463,9 @@ def clone_voice(reference_audio_path, voice_name, voices_dir):
 def generate_speech_vibevoice(text, output_path,
                                model_name="microsoft/VibeVoice-1.5b",
                                voice_name="Alice", repo_path=None,
-                               disable_prefill=False):
+                               disable_prefill=False,
+                               cfg_scale=1.5,  # Añadido parámetro
+                               ddpm_steps=20):  # Añadido parámetro
     """
     Genera audio desde texto usando VibeVoice.
 
@@ -423,6 +476,8 @@ def generate_speech_vibevoice(text, output_path,
         voice_name: Nombre de la voz (alias o nombre exacto del archivo)
         repo_path: Ruta al repositorio de VibeVoice
         disable_prefill: Deshabilitar clonación de voz (más rápido, voz genérica)
+        cfg_scale: CFG scale para la generación (default: 1.5, rango: 1.0-3.0)
+        ddpm_steps: Número de pasos DDPM (default: 20, rango: 5-100)
     """
     voices_dir = repo_path / "demo" / "voices"
 
@@ -440,11 +495,12 @@ def generate_speech_vibevoice(text, output_path,
         print(f"⚠️  Formato '{output_ext}' no soportado. Usando .wav por defecto.")
         output_path = str(Path(output_path).with_suffix(".wav"))
 
-    print(f"\n️  Generando audio...")
-    print(f" Texto:  {text[:100]}{'...' if len(text) > 100 else ''}")
-    print(f" Voz:    {resolved_voice}")
-    print(f" Modelo: {model_name}")
-    print(f" Formato: {Path(output_path).suffix.upper()[1:]}")
+    print(f" Texto:      {text[:100]}{'...' if len(text) > 100 else ''}")
+    print(f" Voz:        {resolved_voice}")
+    print(f" Modelo:     {model_name}")
+    print(f" Formato:    {Path(output_path).suffix.upper()[1:]}")
+    print(f" CFG Scale:  {cfg_scale}")
+    print(f" DDPM Steps: {ddpm_steps}")
 
     # Escribe el texto en el formato que espera el script de VibeVoice
     temp_txt = "temp_input.txt"
@@ -465,6 +521,8 @@ def generate_speech_vibevoice(text, output_path,
         "--txt_path", temp_txt,
         "--speaker_names", resolved_voice,
         "--output_dir", str(output_dir),
+        "--cfg_scale", str(cfg_scale),      # Pasa cfg_scale
+        "--ddpm_steps", str(ddpm_steps),    # Pasa ddpm_steps
     ]
     if disable_prefill:
         cmd.append("--disable_prefill")
@@ -472,7 +530,6 @@ def generate_speech_vibevoice(text, output_path,
     print(" Ejecutando generación...")
     print("   (La primera vez descarga el modelo ~6GB, puede tardar varios minutos)\n")
 
-    # capture_output=False para ver el progreso en tiempo real en la consola
     result = subprocess.run(cmd, capture_output=False, text=True)
 
     if result.returncode == 0:
@@ -484,6 +541,7 @@ def generate_speech_vibevoice(text, output_path,
                     os.remove(temp_txt)
                 return True
             else:
+                print(f"❌ Falló la conversión del audio generado")
                 return False
         else:
             print(f"❌ El script terminó sin errores pero no generó el archivo esperado.")
@@ -527,10 +585,12 @@ Ejemplos de uso:
   Generar audio con voz predeterminada:
     python vibevoice_app.py --text "Hola, esto es una prueba" --output prueba.wav
 
-  Usar una voz específica:
-    python vibevoice_app.py --text "Hello world" --voice-name Maya --output maya.wav
+  Alta calidad (más lento, mejor resultado):
+    python vibevoice_app.py --text "Hola mundo" --cfg-scale 1.8 --ddpm-steps 30 --output audio.wav
 
-  Extraer voz desde YouTube (HH:MM:SS):
+  Baja calidad (más rápido):
+    python vibevoice_app.py --text "Hola mundo" --cfg-scale 1.2 --ddpm-steps 5 --output audio.wav
+
     python vibevoice_app.py --youtube-voice "https://youtube.com/watch?v=..." --start 00:01:30 --end 00:02:00 --voice-name MiVoz
 
   Generar audio con voz extraída de YouTube:
@@ -570,6 +630,13 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
     parser.add_argument("--model", "-m", type=str,
                         default="microsoft/VibeVoice-1.5b",
                         help="Modelo a usar (default: microsoft/VibeVoice-1.5b)")
+    
+    # NUEVOS PARÁMETROS DE CALIDAD
+    parser.add_argument("--cfg-scale", type=float, default=2,
+                        help="CFG scale para generación (1.0-3.0, default: 1.5). Más alto = más fidelidad al texto.")
+    parser.add_argument("--ddpm-steps", type=int, default=30,
+                        help="Pasos de difusión DDPM (5-100, default: 20). Más pasos = mejor calidad pero más lento.")
+    
     parser.add_argument("--disable-prefill", action="store_true",
                         help="Deshabilitar clonación de voz (más rápido, voz genérica)")
     parser.add_argument("--interactive", "-i", action="store_true",
@@ -578,10 +645,6 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
                         help="Listar voces disponibles y salir")
 
     args = parser.parse_args()
-
-    print("=" * 70)
-    print("️  VIBEVOICE - Generador de Audio con Clonación de Voz")
-    print("=" * 70)
 
     check_dependencies()
     repo_path = check_vibevoice_repo()
@@ -652,7 +715,9 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
     if args.interactive:
         print("\n" + "=" * 70)
         print(" MODO INTERACTIVO  (escribe 'salir' para terminar)")
-        print("=" * 70 + "\n")
+        print("=" * 70)
+        print(f" CFG Scale:  {args.cfg_scale}")
+        print(f" DDPM Steps: {args.ddpm_steps}\n")
 
         output_ext = Path(args.output).suffix or ".wav"
 
@@ -681,9 +746,16 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
                 break
 
     elif args.text:
-        if generate_speech_vibevoice(args.text, args.output, args.model,
-                                     voice_name, repo_path,
-                                     args.disable_prefill):
+        if generate_speech_vibevoice(
+            text=args.text,
+            output_path=args.output,
+            model_name=args.model,
+            voice_name=voice_name,
+            repo_path=repo_path,
+            disable_prefill=args.disable_prefill,
+            cfg_scale=args.cfg_scale,      # Pasa el parámetro
+            ddpm_steps=args.ddpm_steps     # Pasa el parámetro
+        ):
             print("✨ Proceso completado exitosamente")
 
     else:
