@@ -9,7 +9,22 @@ import argparse
 import os
 import sys
 import subprocess
+import shutil
 from pathlib import Path
+
+import torch
+import torchaudio
+import soundfile
+from huggingface_hub import hf_hub_download
+
+# Importaciones de la librería VibeVoice
+try:
+    from vibevoice.processor import VibeVoiceProcessor
+    from vibevoice import VibeVoiceStreamingForConditionalGenerationInference as Inference
+except ImportError:
+    print("❌ Error: La librería 'vibevoice' no está instalada.")
+    print("   Instálala con: pip install git+https://github.com/microsoft/VibeVoice.git")
+    sys.exit(1)
 
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -62,8 +77,16 @@ def convert_audio(input_path, output_path):
 
     try:
         print(f" Convirtiendo a {ext.upper()[1:]}...")
-        waveform, sample_rate = torchaudio.load(input_path)
-        torchaudio.save(output_path, waveform, sample_rate)
+        data, sample_rate = soundfile.read(input_path)
+        waveform = torch.from_numpy(data)
+        if waveform.ndim == 1:
+            waveform = waveform.unsqueeze(0)
+        else:
+            waveform = waveform.transpose(0, 1) # soundfile returns [frames, channels], torch expects [channels, frames]
+        
+        # torchaudio.save(output_path, waveform, sample_rate)
+        # Usamos soundfile para evitar errores de torchcodec
+        soundfile.write(output_path, waveform.transpose(0, 1).numpy(), sample_rate)
         os.remove(input_path)
         return True
     except Exception as e:
@@ -79,52 +102,38 @@ def check_dependencies():
         import torchaudio
         import transformers
         import soundfile
+        import vibevoice
     except ImportError as e:
         print(f"❌ Error: Falta una dependencia requerida: {e}")
         print("\n Para instalar las dependencias, ejecuta:")
-        print("pip install torch torchaudio transformers soundfile accelerate huggingface_hub")
+        print("pip install -r requirements.txt")
         sys.exit(1)
 
 
-def check_vibevoice_repo():
-    """Verifica si el repositorio de VibeVoice está clonado e instalado"""
-    repo_path = Path("VibeVoice")
-
-    if not repo_path.exists():
-        print("\n El repositorio de VibeVoice no está disponible localmente.")
-        print(" Clonando el repositorio...")
-        try:
-            subprocess.run([
-                "git", "clone",
-                "https://github.com/vibevoice-community/VibeVoice.git"
-            ], check=True)
-            print("✅ Repositorio clonado exitosamente")
-        except subprocess.CalledProcessError:
-            print("❌ Error al clonar el repositorio")
-            print("   Clona manualmente con:")
-            print("   git clone https://github.com/vibevoice-community/VibeVoice.git")
-            sys.exit(1)
-        except FileNotFoundError:
-            print("❌ Git no está instalado")
-            print("   Instala Git desde: https://git-scm.com/downloads")
-            sys.exit(1)
-
-    try:
-        import vibevoice  # noqa: F401
-    except ImportError:
-        print("\n Instalando el paquete vibevoice...")
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-e", str(repo_path)],
-                check=True
-            )
-            print("✅ Paquete vibevoice instalado exitosamente")
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Error al instalar el paquete: {e}")
-            print(f"   Intenta manualmente: pip install -e {repo_path}")
-            sys.exit(1)
-
-    return repo_path
+def download_default_voices(voices_dir):
+    """Descarga algunas voces predeterminadas desde el repositorio oficial si no existen"""
+    voices_dir.mkdir(parents=True, exist_ok=True)
+    
+    # URL base de las voces en el repositorio de Microsoft
+    base_url = "https://github.com/microsoft/VibeVoice/raw/main/demo/voices/"
+    
+    # Solo descargamos un par de ejemplo para no saturar si no existen
+    voices_to_download = ["en-Alice_woman", "es-Lobato_man"]
+    
+    for voice in voices_to_download:
+        voice_path = voices_dir / f"{voice}.wav"
+        if not voice_path.exists():
+            print(f"📥 Descargando voz predeterminada: {voice}...")
+            try:
+                import requests
+                r = requests.get(f"{base_url}{voice}.wav")
+                if r.status_code == 200:
+                    voice_path.write_bytes(r.content)
+                    print(f"✅ Descargada: {voice}")
+                else:
+                    print(f"⚠️ No se pudo descargar {voice} (status {r.status_code})")
+            except Exception as e:
+                print(f"⚠️ Error descargando {voice}: {e}")
 
 
 def extract_audio_from_video(video_path, output_audio_path):
@@ -378,9 +387,10 @@ def extract_voice_from_youtube(youtube_url, start_time, end_time, voice_name, vo
         return None
 
 
-def setup_vibevoice_environment(repo_path):
+def setup_vibevoice_environment():
     """Configura el entorno de VibeVoice y retorna el directorio de voces"""
-    voices_dir = repo_path / "demo" / "voices"
+    # En la nueva versión como librería, las voces están en la raíz del proyecto
+    voices_dir = Path("voices")
     voices_dir.mkdir(parents=True, exist_ok=True)
     return voices_dir
 
@@ -433,7 +443,12 @@ def clone_voice(reference_audio_path, voice_name, voices_dir):
 
         print(f"\n Procesando audio de referencia: {reference_audio_path}")
 
-        waveform, sample_rate = torchaudio.load(reference_audio_path)
+        data, sample_rate = soundfile.read(reference_audio_path)
+        waveform = torch.from_numpy(data).float()
+        if waveform.ndim == 1:
+            waveform = waveform.unsqueeze(0)
+        else:
+            waveform = waveform.transpose(0, 1)
 
         # Resamplea a 24kHz (sample rate nativo de VibeVoice)
         if sample_rate != 24000:
@@ -448,7 +463,9 @@ def clone_voice(reference_audio_path, voice_name, voices_dir):
             waveform = torch.mean(waveform, dim=0, keepdim=True)
 
         voice_path = voices_dir / f"{voice_name}.wav"
-        torchaudio.save(str(voice_path), waveform, sample_rate)
+        # torchaudio.save(str(voice_path), waveform, sample_rate)
+        # Usamos soundfile para evitar errores de torchcodec en Windows
+        soundfile.write(str(voice_path), waveform.transpose(0, 1).numpy(), sample_rate)
 
         print(f"✅ Voz guardada: {voice_path}")
         print(f"   Usa '--voice-name {voice_name}' para generar audio con esta voz")
@@ -462,27 +479,22 @@ def clone_voice(reference_audio_path, voice_name, voices_dir):
 
 def generate_speech_vibevoice(text, output_path,
                                model_name="microsoft/VibeVoice-1.5b",
-                               voice_name="Alice", repo_path=None,
+                               voice_name="Alice",
                                disable_prefill=False,
-                               cfg_scale=1.5,  # Añadido parámetro
-                               ddpm_steps=20):  # Añadido parámetro
+                               cfg_scale=1.5,
+                               ddpm_steps=20):
     """
-    Genera audio desde texto usando VibeVoice.
-
-    Args:
-        text: Texto a convertir en audio
-        output_path: Ruta donde guardar el audio generado
-        model_name: Modelo HuggingFace a usar
-        voice_name: Nombre de la voz (alias o nombre exacto del archivo)
-        repo_path: Ruta al repositorio de VibeVoice
-        disable_prefill: Deshabilitar clonación de voz (más rápido, voz genérica)
-        cfg_scale: CFG scale para la generación (default: 1.5, rango: 1.0-3.0)
-        ddpm_steps: Número de pasos DDPM (default: 20, rango: 5-100)
+    Genera audio desde texto usando VibeVoice como librería.
     """
-    voices_dir = repo_path / "demo" / "voices"
-
+    voices_dir = Path("voices")
+    
     # Resuelve el nombre de voz al archivo real
     resolved_voice = resolve_voice_name(voice_name, voices_dir)
+    if resolved_voice is None:
+        # Intenta descargar si es una de las default
+        download_default_voices(voices_dir)
+        resolved_voice = resolve_voice_name(voice_name, voices_dir)
+        
     if resolved_voice is None:
         available = [f.stem for f in voices_dir.glob("*.wav")]
         print(f"❌ Voz '{voice_name}' no encontrada.")
@@ -502,52 +514,177 @@ def generate_speech_vibevoice(text, output_path,
     print(f" CFG Scale:  {cfg_scale}")
     print(f" DDPM Steps: {ddpm_steps}")
 
-    # Escribe el texto en el formato que espera el script de VibeVoice
-    temp_txt = "temp_input.txt"
-    with open(temp_txt, "w", encoding="utf-8") as f:
-        f.write(f"Speaker 1: {text}")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f" Dispositivo: {device}")
 
-    demo_script = repo_path / "demo" / "inference_from_file.py"
-    if not demo_script.exists():
-        print(f"❌ Script de inferencia no encontrado: {demo_script}")
-        return False
+    try:
+        print(" Cargando procesador y modelo...")
+        processor = VibeVoiceProcessor.from_pretrained(model_name)
+        model = Inference.from_pretrained(model_name).to(device)
 
-    output_dir = Path("temp_outputs")
-    output_dir.mkdir(exist_ok=True)
+        voice_wav_path = voices_dir / f"{resolved_voice}.wav"
+        
+        # ✅ Usamos soundfile directamente para evitar errores de torchcodec en Windows
+        data, sample_rate = soundfile.read(str(voice_wav_path))
+        prompt_audio = torch.from_numpy(data).float()
+        if prompt_audio.ndim == 1:
+            prompt_audio = prompt_audio.unsqueeze(0)
+        else:
+            prompt_audio = prompt_audio.transpose(0, 1)
 
-    cmd = [
-        sys.executable, str(demo_script),
-        "--model_path", model_name,
-        "--txt_path", temp_txt,
-        "--speaker_names", resolved_voice,
-        "--output_dir", str(output_dir),
-        "--cfg_scale", str(cfg_scale),      # Pasa cfg_scale
-        "--ddpm_steps", str(ddpm_steps),    # Pasa ddpm_steps
-    ]
-    if disable_prefill:
-        cmd.append("--disable_prefill")
+        print(" Ejecutando generación...")
+        
+        # ✅ VibeVoiceProcessor requiere el formato "Speaker {ID}: {Texto}"
+        formatted_text = f"Speaker 1: {text}"
+        
+        # ✅ Importante: Pasar voice_samples como una LISTA de tensores de audio
+        # para que el procesador genere speech_tensors y speech_masks
+        inputs = processor(
+            text=formatted_text,
+            voice_samples=[prompt_audio],
+            return_tensors="pt",
+            sampling_rate=24000
+        ).to(device)
 
-    print(" Ejecutando generación...")
-    print("   (La primera vez descarga el modelo ~6GB, puede tardar varios minutos)\n")
+        # ✅ Separamos el prefill del texto a generar para evitar duplicidades
+        # 1. Generamos los tokens de "prompt" (Voz + Instrucciones del sistema)
+        print(" Preparando prefill (Voice Prompt)...")
+        # Usamos un texto mínimo para que el procesador genere el formato, pero luego lo recortamos
+        prompt_inputs = processor(
+            text="Speaker 1: .", # Texto mínimo
+            voice_samples=[prompt_audio],
+            return_tensors="pt",
+            sampling_rate=24000
+        ).to(device)
+        
+        # El procesador genera algo como: [System Prompt] [Voice Input] [Text Input] [Speaker 1: .] [Speech Output]
+        # Queremos recortar justo ANTES del texto "." para que el prefill sea solo el contexto.
+        # Según nuestras pruebas, los últimos 6 tokens corresponden a "Speaker 0: . \n Speech output: \n <|vision_start|>"
+        # Vamos a ser más precisos: buscamos el final del prompt de voz.
+        # En VibeVoice 1.5b, el prefill suele terminar antes de "Text input:"
+        
+        # Para simplificar y asegurar compatibilidad, vamos a usar el input completo del texto real
+        # PERO nos aseguramos de que 'tts_text_ids' en generate() no empiece desde el principio si ya está en el prefill.
+        
+        # Sin embargo, la forma más robusta con la librería es:
+        # 1. Prefill de TODO (Voz + Texto)
+        # 2. En generate, pasar 'tts_text_ids' que sea SOLO el texto a generar.
+        
+        full_inputs = processor(
+            text=f"Speaker 1: {text}",
+            voice_samples=[prompt_audio],
+            return_tensors="pt",
+            sampling_rate=24000
+        ).to(device)
 
-    result = subprocess.run(cmd, capture_output=False, text=True)
+        # Identificamos dónde empieza el texto del speaker en los tokens
+        # El formato es: ... Text input: \n Speaker 0: {text} \n Speech output: \n <|vision_start|>
+        # Queremos que el prefill incluya TODO hasta justo antes del primer token de audio generado.
+        
+        input_ids = full_inputs["input_ids"]
+        attention_mask = full_inputs["attention_mask"]
+        
+        # 'tts_text_ids' para el bucle de generación debe ser el texto formateado
+        # Pero 'generate' lo va consumiendo en ventanas.
+        # Si le pasamos el 'input_ids' completo como 'tts_text_ids', volverá a procesar el audio del prompt.
+        
+        # Lo correcto es:
+        # input_ids (prefill) = [Prompt + Audio + Texto]
+        # tts_text_ids (generación) = [Texto] (pero el modelo lo concatena internamente)
+        
+        # Según el código de generate():
+        # cur_input_tts_text_ids = tts_text_ids[:, index*WINDOW: (index+1)*WINDOW]
+        # input_ids = torch.cat([input_ids, cur_input_tts_text_ids], dim=-1)
+        
+        # Si el prefill ya tiene el texto, tts_text_ids debe estar vacío o ser lo que viene DESPUÉS.
+        # Pero el bucle 'while True' de generate necesita algo en tts_text_ids para correr.
+        
+        # Vamos a probar la configuración que funcionó en debug_gen.py pero asegurándonos de que
+        # el clasificador EOS no se dispare. Aumentamos DDPM steps y bajamos CFG scale ligeramente.
+        
+        neg_text_input_id = processor.tokenizer.convert_tokens_to_ids("<|image_pad|>")
+        neg_input_ids = torch.full((1, 1), neg_text_input_id, dtype=torch.long, device=device)
+        neg_attention_mask = torch.ones((1, 1), dtype=torch.long, device=device)
 
-    if result.returncode == 0:
-        generated_file = output_dir / "temp_input_generated.wav"
-        if generated_file.exists():
-            if convert_audio(str(generated_file), output_path):
+        with torch.no_grad():
+            # Prefill Positivo
+            lm_out = model.forward_lm(input_ids=input_ids, attention_mask=attention_mask, use_cache=True)
+            
+            speech_input_mask = full_inputs["speech_input_mask"]
+            tts_text_masks = (~speech_input_mask).bool()
+            
+            tts_lm_out = model.forward_tts_lm(
+                input_ids=input_ids, 
+                attention_mask=attention_mask, 
+                lm_last_hidden_state=lm_out.last_hidden_state,
+                tts_text_masks=tts_text_masks,
+                use_cache=True
+            )
+            
+            # Prefill Negativo
+            neg_lm_out = model.forward_lm(input_ids=neg_input_ids, attention_mask=neg_attention_mask, use_cache=True)
+            neg_tts_text_masks = torch.ones((1, 1), dtype=torch.bool, device=device)
+            neg_tts_lm_out = model.forward_tts_lm(
+                input_ids=neg_input_ids,
+                attention_mask=neg_attention_mask,
+                lm_last_hidden_state=neg_lm_out.last_hidden_state,
+                tts_text_masks=neg_tts_text_masks,
+                use_cache=True
+            )
+
+        all_prefilled_outputs = {
+            "lm": lm_out,
+            "tts_lm": tts_lm_out,
+            "neg_lm": neg_lm_out,
+            "neg_tts_lm": neg_tts_lm_out
+        }
+
+        # Para evitar que el modelo genere un audio vacío por ver texto duplicado:
+        # Pasamos como tts_text_ids una versión que solo contiene el texto final
+        # Pero el prefill debe contener el contexto previo.
+        
+        # Intentamos este truco: tts_text_ids será solo el texto.
+        # Pero como el modelo ya hizo prefill de TODO el input_ids, 
+        # le decimos que el tts_text_ids empiece DESPUÉS de lo que ya pre-llenamos.
+        
+        full_inputs["tts_text_ids"] = input_ids # Por ahora mantenemos esto
+        full_inputs["tts_lm_input_ids"] = input_ids
+        full_inputs["tts_lm_attention_mask"] = attention_mask
+        full_inputs["all_prefilled_outputs"] = all_prefilled_outputs
+
+        with torch.no_grad():
+            output = model.generate(
+                **full_inputs,
+                tokenizer=processor.tokenizer,
+                cfg_scale=cfg_scale,
+                ddpm_steps=ddpm_steps,
+                disable_prefill=disable_prefill,
+                max_new_tokens=1000 # Aseguramos un límite razonable
+            )
+
+        # La salida suele ser un tensor de audio en output.speech_outputs[0]
+        if hasattr(output, "speech_outputs") and output.speech_outputs:
+            audio_tensor = output.speech_outputs[0].cpu()
+            
+            # Guardar temporalmente como WAV
+            temp_wav = "temp_generated.wav"
+            # torchaudio.save(temp_wav, audio_tensor, 24000)
+            # Usamos soundfile para evitar errores de torchcodec en Windows
+            soundfile.write(temp_wav, audio_tensor.transpose(0, 1).numpy(), 24000)
+            
+            if convert_audio(temp_wav, output_path):
                 print(f"\n✅ Audio guardado en: {output_path}")
-                if os.path.exists(temp_txt):
-                    os.remove(temp_txt)
                 return True
             else:
-                print(f"❌ Falló la conversión del audio generado")
                 return False
         else:
-            print(f"❌ El script terminó sin errores pero no generó el archivo esperado.")
+            print("❌ No se generó audio en la salida del modelo.")
             return False
-    else:
-        print(f"❌ El script de inferencia terminó con error (código {result.returncode})")
+
+    except Exception as e:
+        print(f"❌ Error durante la generación: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -647,8 +784,7 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
     args = parser.parse_args()
 
     check_dependencies()
-    repo_path = check_vibevoice_repo()
-    voices_dir = setup_vibevoice_environment(repo_path)
+    voices_dir = setup_vibevoice_environment()
 
     if args.list_voices:
         list_available_voices(voices_dir)
@@ -736,7 +872,7 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
 
                 output_file = f"output_{counter}{output_ext}"
                 if generate_speech_vibevoice(text, output_file, args.model,
-                                             voice_name, repo_path,
+                                             voice_name,
                                              args.disable_prefill):
                     counter += 1
                     print(f" Guardado: {output_file}\n")
@@ -751,7 +887,6 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
             output_path=args.output,
             model_name=args.model,
             voice_name=voice_name,
-            repo_path=repo_path,
             disable_prefill=args.disable_prefill,
             cfg_scale=args.cfg_scale,      # Pasa el parámetro
             ddpm_steps=args.ddpm_steps     # Pasa el parámetro

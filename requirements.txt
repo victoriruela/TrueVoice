@@ -1,21 +1,30 @@
+# VibeVoice (instalado directamente desde GitHub)
+vibevoice @ git+https://github.com/microsoft/VibeVoice.git
+
+# Dependencias base
 torch>=2.0.0
 torchaudio>=2.0.0
-transformers>=4.30.0
+transformers>=4.51.3
 accelerate>=0.20.0
 huggingface_hub>=0.19.0
 soundfile>=0.12.0
 yt-dlp>=2024.1.0
+diffusers>=0.25.0
+gradio>=4.0.0
+librosa>=0.10.0
 
 # API REST
 fastapi>=0.100.0
 uvicorn>=0.20.0
+python-multipart>=0.0.6
+pydantic>=2.0.0
 
 # Frontend
 streamlit>=1.30.0
 requests>=2.28.0
 
 # Opcional: para procesar videos locales
-# moviepy>=1.0.3
+moviepy>=1.0.3
 
 # Opcional: para mejor rendimiento con GPU NVIDIA
 # nvidia-cuda-runtime-cu12

@@ -31,8 +31,8 @@ app.add_middleware(
 
 # ── Rutas del proyecto ──────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.resolve()
-VIBEVOICE_REPO = PROJECT_ROOT / "VibeVoice"
-VOICES_DIR = VIBEVOICE_REPO / "demo" / "voices"
+VOICES_DIR = PROJECT_ROOT / "voices"
+VOICES_DIR.mkdir(exist_ok=True)
 OUTPUTS_DIR = PROJECT_ROOT / "api_outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
 
@@ -161,6 +161,7 @@ def generate_audio(req: GenerateRequest):
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=600,
             cwd=str(PROJECT_ROOT),  # Asegura que el working directory sea el correcto
         )
