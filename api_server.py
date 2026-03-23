@@ -250,8 +250,6 @@ def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
 
         print(f"\n{'='*60}")
         print(f"[API] Generando audio...")
-        print(f"[API] CFG Scale: {req.cfg_scale}")
-        print(f"[API] DDPM Steps: {req.ddpm_steps}")
         print(f"[API] Voz: {req.voice_name} → {resolved_path}")
         print(f"[API] Output: {output_file}")
         print(f"[API] Comando: {' '.join(cmd[:6])}...")
