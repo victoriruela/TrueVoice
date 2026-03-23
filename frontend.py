@@ -91,12 +91,18 @@ def select_folder_windows(title="Selecciona una carpeta"):
 if "config" not in st.session_state:
     st.session_state.config = load_config()
 
-# Sincronizar selectboxes con la configuración cargada
+# Sincronizar selectboxes y campos de texto con la configuración cargada
 if "folder_type_selectbox" not in st.session_state:
     st.session_state.folder_type_selectbox = st.session_state.config.get("voice_folder_type", "Carpeta por defecto (TrueVoice/voices)")
 
 if "output_folder_type_selectbox" not in st.session_state:
     st.session_state.output_folder_type_selectbox = st.session_state.config.get("output_folder_type", "Carpeta por defecto (api_outputs)")
+
+if "text_input" not in st.session_state:
+    st.session_state.text_input = st.session_state.config.get("last_text_input", "")
+
+if "custom_name" not in st.session_state:
+    st.session_state.custom_name = st.session_state.config.get("last_custom_name", "")
 
 st.set_page_config(
     page_title="TrueVoice",
@@ -311,24 +317,6 @@ disable_prefill = st.sidebar.checkbox(
     help="Si se activa, usa una voz genérica (más rápido)",
 )
 
-# Guardar configuración automáticamente cuando cambia algo
-current_config = {
-    "voice_folder_type": selected_folder_type,
-    "custom_folder_path": custom_folder_path,
-    "output_folder_type": selected_output_folder_type,
-    "custom_output_path": custom_output_path,
-    "selected_voice": selected_voice,
-    "selected_model_name": selected_model_name,
-    "output_format": output_format,
-    "cfg_scale": cfg_scale,
-    "ddpm_steps": ddpm_steps,
-    "disable_prefill": disable_prefill
-}
-
-if current_config != st.session_state.config:
-    st.session_state.config = current_config
-    save_config(current_config)
-
 # Info del preset seleccionado
 st.sidebar.divider()
 st.sidebar.caption(f"🔊 Voz: **{selected_voice}**")
@@ -350,14 +338,36 @@ with tab_generate:
         "Escribe o pega tu texto aquí:",
         height=200,
         placeholder="Primera carrera del campeonato en el circuito australiano de Albert Park...",
+        key="text_input"
     )
 
     st.subheader("Nombre del archivo de salida")
     custom_name = st.text_input(
         "Nombre personalizado (opcional)", 
         placeholder="ejemplo",
-        help="Si no se especifica, se usará un ID aleatorio. Si el nombre ya existe, se añadirá un sufijo (_1, _2, etc.)"
+        help="Si no se especifica, se usará un ID aleatorio. Si el nombre ya existe, se añadirá un sufijo (_1, _2, etc.)",
+        key="custom_name"
     )
+
+    # Guardar configuración automáticamente cuando cambia algo incluyendo el texto y nombre
+    current_config = {
+        "voice_folder_type": selected_folder_type,
+        "custom_folder_path": custom_folder_path,
+        "output_folder_type": selected_output_folder_type,
+        "custom_output_path": custom_output_path,
+        "selected_voice": selected_voice,
+        "selected_model_name": selected_model_name,
+        "output_format": output_format,
+        "cfg_scale": cfg_scale,
+        "ddpm_steps": ddpm_steps,
+        "disable_prefill": disable_prefill,
+        "last_text_input": text_input,
+        "last_custom_name": custom_name
+    }
+
+    if current_config != st.session_state.config:
+        st.session_state.config = current_config
+        save_config(current_config)
 
     col1, col2 = st.columns([1, 3])
     with col1:

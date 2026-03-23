@@ -8,5 +8,7 @@
     "output_format": "wav",
     "cfg_scale": 2.0,
     "ddpm_steps": 10,
-    "disable_prefill": false
+    "disable_prefill": false,
+    "last_text_input": "Ad\u00e1n fue el \u00fanico que gan\u00f3",
+    "last_custom_name": "prueba"
 }
