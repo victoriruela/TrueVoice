@@ -112,7 +112,7 @@ st.set_page_config(
 
 
 # ── Funciones auxiliares ────────────────────────────────────────────────────
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=10, show_spinner="Cargando...")
 def api_get(endpoint: str, params: dict = None):
     """GET a la API con caché ligera."""
     try:
@@ -158,172 +158,243 @@ except:
 
 
 # ── Sidebar: Configuración ──────────────────────────────────────────────────
-st.sidebar.title("⚙️ Configuración")
+@st.fragment
+def render_sidebar(voices_data, models_data):
+    st.title("⚙️ Configuración")
 
-# Voces
-st.sidebar.subheader("🎤 Selección de Voces")
+    # Voces
+    st.subheader("🎤 Selección de Voces")
 
-# Tipo de carpeta
-folder_options = ["Carpeta por defecto (TrueVoice/voices)", "Escoger carpeta local"]
+    # Tipo de carpeta
+    folder_options = ["Carpeta por defecto (TrueVoice/voices)", "Escoger carpeta local"]
 
-def on_folder_type_change():
-    if st.session_state.folder_type_selectbox == "Escoger carpeta local":
-        new_path = select_folder_windows("Selecciona la carpeta donde están tus voces (.wav)")
-        if new_path:
-            st.session_state.config["custom_folder_path"] = new_path
+    def on_folder_type_change():
+        if st.session_state.folder_type_selectbox == "Escoger carpeta local":
+            new_path = select_folder_windows("Selecciona la carpeta donde están tus voces (.wav)")
+            if new_path:
+                st.session_state.config["custom_folder_path"] = new_path
+                st.session_state.config["voice_folder_type"] = "Escoger carpeta local"
+                save_config(st.session_state.config)
+            else:
+                # Si cancela, volvemos a la por defecto
+                st.session_state.folder_type_selectbox = "Carpeta por defecto (TrueVoice/voices)"
+                st.session_state.config["voice_folder_type"] = "Carpeta por defecto (TrueVoice/voices)"
+                save_config(st.session_state.config)
+        # Necesitamos rerun global porque la lista de voces cambiará
+        st.rerun()
+
+    def on_output_folder_type_change():
+        if st.session_state.output_folder_type_selectbox == "Escoger carpeta local":
+            new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
+            if new_path:
+                st.session_state.config["custom_output_path"] = new_path
+                st.session_state.config["output_folder_type"] = "Escoger carpeta local"
+                save_config(st.session_state.config)
+            else:
+                # Si cancela, volvemos a la por defecto
+                st.session_state.output_folder_type_selectbox = "Carpeta por defecto (api_outputs)"
+                st.session_state.config["output_folder_type"] = "Carpeta por defecto (api_outputs)"
+                save_config(st.session_state.config)
         else:
-            # Si cancela, volvemos a la por defecto
-            st.session_state.folder_type_selectbox = "Carpeta por defecto (TrueVoice/voices)"
-            st.session_state.config["voice_folder_type"] = "Carpeta por defecto (TrueVoice/voices)"
-
-def on_output_folder_type_change():
-    if st.session_state.output_folder_type_selectbox == "Escoger carpeta local":
-        new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
-        if new_path:
-            st.session_state.config["custom_output_path"] = new_path
-        else:
-            # Si cancela, volvemos a la por defecto
-            st.session_state.output_folder_type_selectbox = "Carpeta por defecto (api_outputs)"
+            # Si se cambia a la carpeta por defecto manualmente
             st.session_state.config["output_folder_type"] = "Carpeta por defecto (api_outputs)"
+            save_config(st.session_state.config)
+        
+        # Forzar que la lista de audios se actualice inmediatamente
+        st.cache_data.clear()
+        st.rerun()
 
-selected_folder_type = st.sidebar.selectbox(
-    "Origen de las voces",
-    folder_options,
-    help="Selecciona de dónde cargar las voces",
-    key="folder_type_selectbox",
-    on_change=on_folder_type_change
-)
-
-voice_directory = None
-if selected_folder_type == "Escoger carpeta local":
-    custom_folder_path = st.session_state.config.get("custom_folder_path", "")
-    if custom_folder_path:
-        st.sidebar.caption(f"📁 Ruta: {custom_folder_path}")
-    
-    # Botón para cambiar la carpeta local en cualquier momento
-    if st.sidebar.button("📂 Cambiar carpeta", help="Abrir explorador de archivos para elegir otra carpeta", use_container_width=True):
-        new_path = select_folder_windows()
-        if new_path:
-            st.session_state.config["custom_folder_path"] = new_path
-            st.rerun()
-    
-    if custom_folder_path.strip():
-        voice_directory = custom_folder_path
-else:
-    custom_folder_path = ""
-
-# Obtener voces de la carpeta seleccionada
-params = {"directory": voice_directory} if voice_directory else {}
-voices_data = api_get("/voices", params=params) or []
-
-voice_names = [v["alias"] or v["name"] for v in voices_data]
-
-if not voice_names:
-    st.sidebar.warning("No se encontraron archivos .wav en la carpeta.")
-    selected_voice = ""
-else:
-    saved_voice = st.session_state.config.get("selected_voice")
-    default_voice_idx = 0
-    if saved_voice in voice_names:
-        default_voice_idx = voice_names.index(saved_voice)
-    
-    selected_voice = st.sidebar.selectbox(
-        "Seleccionar voz",
-        voice_names,
-        index=default_voice_idx,
-        help="Elige la voz para la generación de audio",
+    selected_folder_type = st.selectbox(
+        "Origen de las voces",
+        folder_options,
+        help="Selecciona de dónde cargar las voces",
+        key="folder_type_selectbox",
+        on_change=on_folder_type_change
     )
 
-# Modelos
-@st.cache_data(ttl=60)
-def get_models():
-    return api_get("/models") or []
+    voice_directory = None
+    if selected_folder_type == "Escoger carpeta local":
+        custom_folder_path = st.session_state.config.get("custom_folder_path", "")
+        if custom_folder_path:
+            st.caption(f"📁 Ruta: {custom_folder_path}")
+        
+        # Botón para cambiar la carpeta local en cualquier momento
+        if st.button("📂 Cambiar carpeta", help="Abrir explorador de archivos para elegir otra carpeta", use_container_width=True):
+            new_path = select_folder_windows()
+            if new_path:
+                st.session_state.config["custom_folder_path"] = new_path
+                save_config(st.session_state.config)
+                st.rerun(scope="fragment")
+        
+        if custom_folder_path.strip():
+            voice_directory = custom_folder_path
+    else:
+        custom_folder_path = ""
 
-models_data = get_models()
-model_options = {m["name"]: m["id"] for m in models_data}
-model_names = list(model_options.keys())
+    # Obtener voces de la carpeta seleccionada (pasadas por parámetro)
+    voice_names = [v["alias"] or v["name"] for v in voices_data]
 
-saved_model = st.session_state.config.get("selected_model_name")
-default_model_idx = model_names.index(saved_model) if saved_model in model_names else 0
+    if not voice_names:
+        st.warning("No se encontraron archivos .wav en la carpeta.")
+        selected_voice = ""
+    else:
+        saved_voice = st.session_state.config.get("selected_voice")
+        default_voice_idx = 0
+        if saved_voice in voice_names:
+            default_voice_idx = voice_names.index(saved_voice)
+        
+        selected_voice = st.selectbox(
+            "Seleccionar voz",
+            voice_names,
+            index=default_voice_idx,
+            help="Elige la voz para la generación de audio",
+            key="selected_voice_sidebar"
+        )
 
-st.sidebar.subheader("🧠 Modelo")
-selected_model_name = st.sidebar.selectbox(
-    "Seleccionar modelo",
-    model_names,
-    index=default_model_idx,
-    help="Modelo más grande = mejor calidad pero más lento",
-)
-selected_model = model_options[selected_model_name]
+    # Modelos (pasados por parámetro)
+    model_options = {m["name"]: m["id"] for m in models_data}
+    model_names = list(model_options.keys())
 
-# Formato de salida
-st.sidebar.subheader("📁 Salida de Audio")
-output_folder_options = ["Carpeta por defecto (api_outputs)", "Escoger carpeta local"]
-selected_output_folder_type = st.sidebar.selectbox(
-    "Carpeta de salida",
-    output_folder_options,
-    key="output_folder_type_selectbox",
-    on_change=on_output_folder_type_change
-)
+    saved_model = st.session_state.config.get("selected_model_name")
+    default_model_idx = model_names.index(saved_model) if saved_model in model_names else 0
 
-output_directory = None
-if selected_output_folder_type == "Escoger carpeta local":
-    custom_output_path = st.session_state.config.get("custom_output_path", "")
-    if custom_output_path:
-        st.sidebar.caption(f"📁 Ruta: {custom_output_path}")
+    st.subheader("🧠 Modelo")
+    selected_model_name = st.selectbox(
+        "Seleccionar modelo",
+        model_names,
+        index=default_model_idx,
+        help="Modelo más grande = mejor calidad pero más lento",
+        key="selected_model_name_sidebar"
+    )
+    selected_model = model_options[selected_model_name]
+
+    # Formato de salida
+    st.subheader("📁 Salida de Audio")
+    output_folder_options = ["Carpeta por defecto (api_outputs)", "Escoger carpeta local"]
+    selected_output_folder_type = st.selectbox(
+        "Carpeta de salida",
+        output_folder_options,
+        key="output_folder_type_selectbox",
+        on_change=on_output_folder_type_change
+    )
+
+    output_directory = None
+    if selected_output_folder_type == "Escoger carpeta local":
+        custom_output_path = st.session_state.config.get("custom_output_path", "")
+        if custom_output_path:
+            st.caption(f"📁 Ruta: {custom_output_path}")
+        
+        if st.button("📂 Cambiar carpeta de salida", help="Elegir otra carpeta para guardar audios", use_container_width=True):
+            new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
+            if new_path:
+                st.session_state.config["custom_output_path"] = new_path
+                save_config(st.session_state.config)
+                st.cache_data.clear() # Limpiar cache para que se actualice la lista de audios
+                st.rerun() # Rerun global para que el tab de audios se actualice
+        
+        if custom_output_path.strip():
+            output_directory = custom_output_path
+    else:
+        custom_output_path = ""
+
+    format_options = ["wav", "mp3", "flac", "ogg"]
+    saved_format = st.session_state.config.get("output_format")
+    default_format_idx = format_options.index(saved_format) if saved_format in format_options else 0
+
+    output_format = st.selectbox(
+        "Formato",
+        format_options,
+        index=default_format_idx,
+        key="output_format_sidebar"
+    )
+
+    # Parámetros avanzados
+    st.subheader("🔧 Parámetros avanzados")
+
+    cfg_scale = st.slider(
+        "CFG Scale",
+        min_value=0.5,
+        max_value=5.0,
+        value=st.session_state.config.get("cfg_scale", 2.3),
+        step=0.1,
+        help="Controla la fidelidad al texto. Más alto = sigue más el texto (1.5-2.5 recomendado)",
+        key="cfg_scale_sidebar"
+    )
+
+    ddpm_steps = st.slider(
+        "DDPM Steps",
+        min_value=1,
+        max_value=100,
+        value=st.session_state.config.get("ddpm_steps", 25),
+        step=1,
+        help="Pasos de difusión. Más pasos = mejor calidad pero más lento (20-50 recomendado)",
+        key="ddpm_steps_sidebar"
+    )
+
+    disable_prefill = st.checkbox(
+        "Desactivar clonación de voz",
+        value=st.session_state.config.get("disable_prefill", False),
+        help="Si se activa, usa una voz genérica (más rápido)",
+        key="disable_prefill_sidebar"
+    )
+
+    # Info del preset seleccionado
+    st.divider()
+    st.caption(f"🔊 Voz: **{selected_voice}**")
+    st.caption(f"🧠 Modelo: **{selected_model_name}**")
+    st.caption(f"📊 CFG: **{cfg_scale}** | DDPM: **{ddpm_steps}**")
+
+    # Retornamos los valores actuales para que estén disponibles en el estado global
+    # pero como usamos key="...", ya se guardan en session_state.
+    # Actualizamos el estado interno de config para que sea accesible fuera del fragmento
+    # si es necesario, aunque lo ideal es leer de session_state directamente.
     
-    if st.sidebar.button("📂 Cambiar carpeta de salida", help="Elegir otra carpeta para guardar audios", use_container_width=True):
-        new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
-        if new_path:
-            st.session_state.config["custom_output_path"] = new_path
-            st.rerun()
-    
-    if custom_output_path.strip():
-        output_directory = custom_output_path
-else:
-    custom_output_path = ""
+    # IMPORTANTE: Para que los valores persistan fuera del fragmento, debemos sincronizarlos
+    # pero sin forzar rerun global.
+    st.session_state.last_sidebar_values = {
+        "voice_folder_type": selected_folder_type,
+        "custom_folder_path": custom_folder_path,
+        "output_folder_type": selected_output_folder_type,
+        "custom_output_path": custom_output_path,
+        "selected_voice": selected_voice,
+        "selected_model_name": selected_model_name,
+        "selected_model": selected_model,
+        "output_format": output_format,
+        "cfg_scale": cfg_scale,
+        "ddpm_steps": ddpm_steps,
+        "disable_prefill": disable_prefill,
+        "output_directory": output_directory,
+        "voice_directory": voice_directory
+    }
 
-format_options = ["wav", "mp3", "flac", "ogg"]
-saved_format = st.session_state.config.get("output_format")
-default_format_idx = format_options.index(saved_format) if saved_format in format_options else 0
+# Extraer valores para el sidebar antes de llamar al fragmento
+# Así evitamos "Running API Get" cada vez que se interactúa con el fragmento
+v_dir = None
+if st.session_state.folder_type_selectbox == "Escoger carpeta local":
+    v_dir = st.session_state.config.get("custom_folder_path", "")
 
-output_format = st.sidebar.selectbox(
-    "Formato",
-    format_options,
-    index=default_format_idx,
-)
+v_params = {"directory": v_dir} if v_dir else {}
+v_data = api_get("/voices", params=v_params) or []
+m_data = api_get("/models") or []
 
-# Parámetros avanzados
-st.sidebar.subheader("🔧 Parámetros avanzados")
+with st.sidebar:
+    render_sidebar(v_data, m_data)
 
-cfg_scale = st.sidebar.slider(
-    "CFG Scale",
-    min_value=0.5,
-    max_value=5.0,
-    value=st.session_state.config.get("cfg_scale", 2.3),
-    step=0.1,
-    help="Controla la fidelidad al texto. Más alto = sigue más el texto (1.5-2.5 recomendado)",
-)
-
-ddpm_steps = st.sidebar.slider(
-    "DDPM Steps",
-    min_value=1,
-    max_value=100,
-    value=st.session_state.config.get("ddpm_steps", 25),
-    step=1,
-    help="Pasos de difusión. Más pasos = mejor calidad pero más lento (20-50 recomendado)",
-)
-
-disable_prefill = st.sidebar.checkbox(
-    "Desactivar clonación de voz",
-    value=st.session_state.config.get("disable_prefill", False),
-    help="Si se activa, usa una voz genérica (más rápido)",
-)
-
-# Info del preset seleccionado
-st.sidebar.divider()
-st.sidebar.caption(f"🔊 Voz: **{selected_voice}**")
-st.sidebar.caption(f"🧠 Modelo: **{selected_model_name}**")
-st.sidebar.caption(f"📊 CFG: **{cfg_scale}** | DDPM: **{ddpm_steps}**")
+# Extraer valores para el resto de la app
+sidebar_values = st.session_state.get("last_sidebar_values", {})
+selected_voice = sidebar_values.get("selected_voice", "")
+selected_model_name = sidebar_values.get("selected_model_name", "")
+selected_model = sidebar_values.get("selected_model", "qwen2.5_1.5b_64k")
+output_format = sidebar_values.get("output_format", "wav")
+cfg_scale = sidebar_values.get("cfg_scale", 2.3)
+ddpm_steps = sidebar_values.get("ddpm_steps", 25)
+disable_prefill = sidebar_values.get("disable_prefill", False)
+output_directory = sidebar_values.get("output_directory")
+voice_directory = sidebar_values.get("voice_directory")
+selected_folder_type = sidebar_values.get("voice_folder_type")
+custom_folder_path = sidebar_values.get("custom_folder_path")
+selected_output_folder_type = sidebar_values.get("output_folder_type")
+custom_output_path = sidebar_values.get("custom_output_path")
 
 
 # ── Contenido principal ─────────────────────────────────────────────────────
@@ -351,31 +422,28 @@ with tab_generate:
         key="custom_name"
     )
 
-    # Guardar configuración automáticamente cuando cambia algo incluyendo el texto y nombre
-    current_config = {
-        "voice_folder_type": selected_folder_type,
-        "custom_folder_path": custom_folder_path,
-        "output_folder_type": selected_output_folder_type,
-        "custom_output_path": custom_output_path,
-        "selected_voice": selected_voice,
-        "selected_model_name": selected_model_name,
-        "output_format": output_format,
-        "cfg_scale": cfg_scale,
-        "ddpm_steps": ddpm_steps,
-        "disable_prefill": disable_prefill,
-        "last_text_input": text_input,
-        "last_custom_name": custom_name
-    }
-
-    if current_config != st.session_state.config:
-        st.session_state.config = current_config
-        save_config(current_config)
-
     col1, col2 = st.columns([1, 3])
     with col1:
         generate_btn = st.button("🚀 Generar Audio", type="primary", use_container_width=True)
 
     if generate_btn:
+        # Persistir configuración actual antes de generar
+        st.session_state.config.update({
+            "voice_folder_type": selected_folder_type,
+            "custom_folder_path": custom_folder_path,
+            "output_folder_type": selected_output_folder_type,
+            "custom_output_path": custom_output_path,
+            "selected_voice": selected_voice,
+            "selected_model_name": selected_model_name,
+            "output_format": output_format,
+            "cfg_scale": cfg_scale,
+            "ddpm_steps": ddpm_steps,
+            "disable_prefill": disable_prefill,
+            "last_text_input": text_input,
+            "last_custom_name": custom_name
+        })
+        save_config(st.session_state.config)
+
         if not text_input.strip():
             st.warning("⚠️ Escribe algo de texto primero.")
         elif not selected_voice:
@@ -516,17 +584,16 @@ with tab_generate:
 
 # ── TAB 2: Audios Generados ─────────────────────────────────────────────────
 with tab_outputs:
+    # --- Inicialización de estado para selección de archivos ---
+    if "selected_files" not in st.session_state:
+        st.session_state.selected_files = set()
+
     @st.fragment
-    def render_outputs():
+    def render_outputs(outputs_list):
         st.subheader("📁 Audios Generados")
         
-        out_params = {"directory": output_directory} if output_directory else {}
-        # Usamos api_get que tiene caché para la lista de archivos
-        outputs = api_get("/outputs", params=out_params) or []
-
-        # --- Inicialización de estado para selección de archivos ---
-        if "selected_files" not in st.session_state:
-            st.session_state.selected_files = set()
+        # outputs_list se pasa por parámetro para evitar Running API Get constante
+        outputs = outputs_list
 
         if not outputs:
             st.info("No hay audios generados en esta carpeta.")
@@ -539,12 +606,13 @@ with tab_outputs:
             with col_header2:
                 if st.button("Seleccionar todos"):
                     st.session_state.selected_files = {f["filename"] for f in outputs}
-                    st.rerun()
+                    # Al ser fragmento, este rerun es local al fragmento
+                    st.rerun(scope="fragment")
             
             with col_header3:
                 if st.button("Desseleccionar todos"):
                     st.session_state.selected_files = set()
-                    st.rerun()
+                    st.rerun(scope="fragment")
 
             with col_header4:
                 # Sincronizar selected_files con outputs actuales
@@ -565,6 +633,7 @@ with tab_outputs:
                             if del_resp.status_code == 200:
                                 st.success(f"Borrados: {len(del_resp.json()['deleted'])} archivos")
                                 st.session_state.selected_files = set()
+                                # Aquí sí necesitamos rerun global porque la lista de archivos cambió
                                 st.rerun()
                             else:
                                 st.error("Error al borrar archivos")
@@ -573,8 +642,7 @@ with tab_outputs:
 
             st.divider()
             
-            # Estilo para filas seleccionadas (rojo)
-            # Mejoramos el selector CSS para que sea más agresivo
+            # Estilo para los botones de selección
             st.markdown("""
                 <style>
                 /* Estilo base para los botones de selección */
@@ -585,26 +653,24 @@ with tab_outputs:
                     background: transparent !important;
                     padding: 0 !important;
                     color: inherit !important;
+                    font-weight: bold;
+                    width: 100% !important;
+                    height: auto !important;
                 }
                 
-                /* Contenedor cuando está seleccionado - Usamos una clase que inyectaremos */
-                .selected-audio-row {
-                    background-color: #ffcccc !important;
-                    border: 2px solid #ff4b4b !important;
-                    border-radius: 5px;
-                    padding: 15px;
-                    margin: -15px; /* Compensa el padding del container de streamlit */
-                    position: relative;
-                    z-index: 1;
-                }
-                
-                /* Hack para forzar que el fondo se vea en el contenedor de Streamlit */
-                [data-testid="stVerticalBlockBorderWrapper"]:has(.selected-audio-row) {
-                    background-color: #ffcccc !important;
-                    border-color: #ff4b4b !important;
+                /* Estilo para la marca de selección roja */
+                .selection-mark {
+                    color: #ff4b4b;
+                    font-size: 1.5rem;
+                    line-height: 1;
+                    margin-right: 5px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100%;
                 }
                 </style>
-            """, unsafe_allow_html=True)
+            """,unsafe_allow_html=True)
 
             # Tabla de archivos
             for f in outputs:
@@ -613,22 +679,16 @@ with tab_outputs:
                 
                 # Usamos un container para agrupar
                 with st.container(border=True):
-                    # Inyectamos una clase CSS personalizada si está seleccionado
-                    if is_selected:
-                        st.markdown(f'<div class="selected-audio-row">', unsafe_allow_html=True)
-                    
-                    c_info, c_play, c_del = st.columns([4, 1.5, 0.5])
+                    c_info, c_play, c_sel_mark, c_del = st.columns([4, 1.5, 0.4, 0.6])
                     
                     with c_info:
                         # Al pulsar en el nombre, se selecciona/deselecciona
-                        # Usamos un botón que no parezca un botón de Streamlit estándar
-                        # para que parezca que pulsas en la fila
                         if st.button(f"📄 **{filename}**", key=f"btn_sel_{filename}", use_container_width=True):
                             if is_selected:
                                 st.session_state.selected_files.remove(filename)
                             else:
                                 st.session_state.selected_files.add(filename)
-                            st.rerun()
+                            st.rerun(scope="fragment")
                         st.caption(f"📅 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(f['created']))} | 📏 {f['size']/1024:.1f} KB")
                     
                     with c_play:
@@ -640,6 +700,12 @@ with tab_outputs:
                         if st.button("▶️ Escuchar", key=f"play_{filename}"):
                             st.audio(audio_url)
                     
+                    with c_sel_mark:
+                        if is_selected:
+                            st.markdown('<div class="selection-mark" title="Seleccionado para borrar">🔴</div>', unsafe_allow_html=True)
+                        else:
+                            st.write("") # Espacio vacío si no está seleccionado
+                    
                     with c_del:
                         if st.button("🗑️", key=f"del_ind_{filename}", help="Borrar este audio permanentemente"):
                             del_params = {"filenames": [filename]}
@@ -650,14 +716,15 @@ with tab_outputs:
                                 requests.delete(f"{API_URL}/outputs/delete", params=del_params)
                                 if filename in st.session_state.selected_files:
                                     st.session_state.selected_files.remove(filename)
+                                # Aquí también rerun global porque la lista cambió
                                 st.rerun()
                             except:
                                 st.error("Error al borrar")
-                    
-                    if is_selected:
-                        st.markdown('</div>', unsafe_allow_html=True)
 
-    render_outputs()
+    # Fuera del fragmento cargamos la lista (con caché)
+    out_params = {"directory": output_directory} if output_directory else {}
+    outputs_data = api_get("/outputs", params=out_params) or []
+    render_outputs(outputs_data)
 
 
 # ── TAB 3: Gestionar Voces ──────────────────────────────────────────────────
