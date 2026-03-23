@@ -385,17 +385,13 @@ def setup_vibevoice_environment(repo_path):
 
 def resolve_voice_name(voice_name, voices_dir):
     """
-    Resuelve el nombre de voz al nombre exacto del archivo WAV.
-    Primero busca en alias predeterminados, luego por nombre exacto o parcial.
-
-    Args:
-        voice_name: Nombre de voz proporcionado por el usuario
-        voices_dir: Directorio de voces del repositorio
-
-    Returns:
-        str: Nombre de voz resuelto (sin extensión) o None si no se encuentra
+    Resuelve el nombre de voz al nombre exacto del archivo WAV o ruta absoluta.
     """
-    # 1. Alias predeterminados (ej: "Alice" -> "en-Alice_woman")
+    # 0. Si ya es una ruta absoluta a un WAV que existe, usarla
+    if os.path.isabs(voice_name) and voice_name.lower().endswith(".wav") and os.path.exists(voice_name):
+        return voice_name
+
+    # 1. Alias predeterminados
     if voice_name in DEFAULT_VOICES:
         resolved = DEFAULT_VOICES[voice_name]
         if (voices_dir / f"{resolved}.wav").exists():
@@ -479,7 +475,7 @@ def generate_speech_vibevoice(text, output_path,
     """
     voices_dir = repo_path / "demo" / "voices"
 
-    # Resuelve el nombre de voz al archivo real
+    # Resuelve el nombre de voz al archivo real (o ruta absoluta)
     resolved_voice = resolve_voice_name(voice_name, voices_dir)
     if resolved_voice is None:
         available = [f.stem for f in voices_dir.glob("*.wav")]
@@ -487,6 +483,13 @@ def generate_speech_vibevoice(text, output_path,
         print(f"   Voces disponibles: {', '.join(available) if available else 'ninguna'}")
         print(f"   Alias soportados:  {', '.join(DEFAULT_VOICES.keys())}")
         return False
+
+    # Para el script de inferencia, si es una ruta absoluta, se usa tal cual.
+    # Si no, se asume que es el nombre base que el VoiceMapper buscará en voices_dir.
+    speaker_param = resolved_voice
+    if not os.path.isabs(speaker_param):
+        # Si no es absoluta, extraemos solo el stem (ya que inference_wrapper/VoiceMapper busca .wav)
+        speaker_param = Path(resolved_voice).stem
 
     output_ext = Path(output_path).suffix.lower()
     if output_ext not in SUPPORTED_OUTPUT_FORMATS:
@@ -520,7 +523,7 @@ def generate_speech_vibevoice(text, output_path,
         sys.executable, str(demo_script),
         "--model_path", model_name,
         "--txt_path", temp_txt,
-        "--speaker_names", resolved_voice,
+        "--speaker_names", speaker_param,
         "--output_dir", str(output_dir),
         "--cfg_scale", str(cfg_scale),      # Pasa cfg_scale
         "--ddpm_steps", str(ddpm_steps),    # Pasa ddpm_steps
@@ -539,9 +542,19 @@ def generate_speech_vibevoice(text, output_path,
     print(" Ejecutando generación...")
     print("   (La primera vez descarga el modelo ~6GB, puede tardar varios minutos)\n")
 
-    result = subprocess.run(cmd, capture_output=False, text=True, env=env)
+    # Usamos Popen para ver la salida en tiempo real y que la API la capture
+    process = subprocess.Popen(
+        cmd, 
+        stdout=sys.stdout, # Usar el descriptor real para evitar buffering intermedio
+        stderr=sys.stderr, # Usar el descriptor real
+        env=env,
+        cwd=str(Path(__file__).parent),
+        bufsize=1 # Line buffered
+    )
+    
+    process.wait()
 
-    if result.returncode == 0:
+    if process.returncode == 0:
         generated_file = output_dir / "temp_input_generated.wav"
         if generated_file.exists():
             if convert_audio(str(generated_file), output_path):
@@ -556,7 +569,7 @@ def generate_speech_vibevoice(text, output_path,
             print(f"❌ El script terminó sin errores pero no generó el archivo esperado.")
             return False
     else:
-        print(f"❌ El script de inferencia terminó con error (código {result.returncode})")
+        print(f"❌ El script de inferencia terminó con error (código {process.returncode})")
         return False
 
 
@@ -746,7 +759,9 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
                 output_file = f"output_{counter}{output_ext}"
                 if generate_speech_vibevoice(text, output_file, args.model,
                                              voice_name, repo_path,
-                                             args.disable_prefill):
+                                             args.disable_prefill,
+                                             args.cfg_scale,
+                                             args.ddpm_steps):
                     counter += 1
                     print(f" Guardado: {output_file}\n")
 
@@ -755,7 +770,7 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
                 break
 
     elif args.text:
-        if generate_speech_vibevoice(
+        success = generate_speech_vibevoice(
             text=args.text,
             output_path=args.output,
             model_name=args.model,
@@ -764,8 +779,11 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
             disable_prefill=args.disable_prefill,
             cfg_scale=args.cfg_scale,      # Pasa el parámetro
             ddpm_steps=args.ddpm_steps     # Pasa el parámetro
-        ):
+        )
+        if success:
             print("✨ Proceso completado exitosamente")
+        else:
+            sys.exit(1) # Importante para que la API detecte el error
 
     else:
         print("\n⚠️  Especifica --text, --interactive, --clone-voice, --youtube-voice o --list-voices")

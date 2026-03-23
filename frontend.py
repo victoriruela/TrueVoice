@@ -9,6 +9,7 @@ import io
 import json
 import os
 import ctypes
+import time
 from ctypes import wintypes
 from pathlib import Path
 
@@ -32,7 +33,7 @@ def save_config(config):
     except Exception as e:
         print(f"Error guardando config: {e}")
 
-def select_folder_windows():
+def select_folder_windows(title="Selecciona una carpeta"):
     """Abre un diálogo nativo de Windows para seleccionar una carpeta sin usar tkinter."""
     # Estructura BROWSEINFO para SHBrowseForFolderW
     class BROWSEINFO(ctypes.Structure):
@@ -70,7 +71,7 @@ def select_folder_windows():
     bi = BROWSEINFO()
     # Intentamos obtener la ventana activa para que el diálogo aparezca en primer plano
     bi.hwndOwner = user32.GetForegroundWindow() 
-    bi.lpszTitle = "Selecciona la carpeta donde están tus voces (.wav)"
+    bi.lpszTitle = title
     bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX
 
     pidl = shell32.SHBrowseForFolderW(ctypes.byref(bi))
@@ -89,6 +90,13 @@ def select_folder_windows():
 # Carga inicial de configuración
 if "config" not in st.session_state:
     st.session_state.config = load_config()
+
+# Sincronizar selectboxes con la configuración cargada
+if "folder_type_selectbox" not in st.session_state:
+    st.session_state.folder_type_selectbox = st.session_state.config.get("voice_folder_type", "Carpeta por defecto (TrueVoice/voices)")
+
+if "output_folder_type_selectbox" not in st.session_state:
+    st.session_state.output_folder_type_selectbox = st.session_state.config.get("output_folder_type", "Carpeta por defecto (api_outputs)")
 
 st.set_page_config(
     page_title="TrueVoice",
@@ -147,20 +155,30 @@ st.sidebar.subheader("🎤 Selección de Voces")
 
 # Tipo de carpeta
 folder_options = ["Carpeta por defecto (TrueVoice/voices)", "Escoger carpeta local"]
-saved_folder_type = st.session_state.config.get("voice_folder_type", folder_options[0])
-default_folder_idx = folder_options.index(saved_folder_type) if saved_folder_type in folder_options else 0
 
 def on_folder_type_change():
     if st.session_state.folder_type_selectbox == "Escoger carpeta local":
-        new_path = select_folder_windows()
+        new_path = select_folder_windows("Selecciona la carpeta donde están tus voces (.wav)")
         if new_path:
             st.session_state.config["custom_folder_path"] = new_path
-            # No necesitamos llamar a st.rerun() aquí, on_change se encarga de que Streamlit continúe
+        else:
+            # Si cancela, volvemos a la por defecto
+            st.session_state.folder_type_selectbox = "Carpeta por defecto (TrueVoice/voices)"
+            st.session_state.config["voice_folder_type"] = "Carpeta por defecto (TrueVoice/voices)"
+
+def on_output_folder_type_change():
+    if st.session_state.output_folder_type_selectbox == "Escoger carpeta local":
+        new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
+        if new_path:
+            st.session_state.config["custom_output_path"] = new_path
+        else:
+            # Si cancela, volvemos a la por defecto
+            st.session_state.output_folder_type_selectbox = "Carpeta por defecto (api_outputs)"
+            st.session_state.config["output_folder_type"] = "Carpeta por defecto (api_outputs)"
 
 selected_folder_type = st.sidebar.selectbox(
     "Origen de las voces",
     folder_options,
-    index=default_folder_idx,
     help="Selecciona de dónde cargar las voces",
     key="folder_type_selectbox",
     on_change=on_folder_type_change
@@ -230,7 +248,32 @@ selected_model_name = st.sidebar.selectbox(
 selected_model = model_options[selected_model_name]
 
 # Formato de salida
-st.sidebar.subheader("📁 Formato de salida")
+st.sidebar.subheader("📁 Salida de Audio")
+output_folder_options = ["Carpeta por defecto (api_outputs)", "Escoger carpeta local"]
+selected_output_folder_type = st.sidebar.selectbox(
+    "Carpeta de salida",
+    output_folder_options,
+    key="output_folder_type_selectbox",
+    on_change=on_output_folder_type_change
+)
+
+output_directory = None
+if selected_output_folder_type == "Escoger carpeta local":
+    custom_output_path = st.session_state.config.get("custom_output_path", "")
+    if custom_output_path:
+        st.sidebar.caption(f"📁 Ruta: {custom_output_path}")
+    
+    if st.sidebar.button("📂 Cambiar carpeta de salida", help="Elegir otra carpeta para guardar audios", use_container_width=True):
+        new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
+        if new_path:
+            st.session_state.config["custom_output_path"] = new_path
+            st.rerun()
+    
+    if custom_output_path.strip():
+        output_directory = custom_output_path
+else:
+    custom_output_path = ""
+
 format_options = ["wav", "mp3", "flac", "ogg"]
 saved_format = st.session_state.config.get("output_format")
 default_format_idx = format_options.index(saved_format) if saved_format in format_options else 0
@@ -272,6 +315,8 @@ disable_prefill = st.sidebar.checkbox(
 current_config = {
     "voice_folder_type": selected_folder_type,
     "custom_folder_path": custom_folder_path,
+    "output_folder_type": selected_output_folder_type,
+    "custom_output_path": custom_output_path,
     "selected_voice": selected_voice,
     "selected_model_name": selected_model_name,
     "output_format": output_format,
@@ -295,7 +340,7 @@ st.sidebar.caption(f"📊 CFG: **{cfg_scale}** | DDPM: **{ddpm_steps}**")
 st.title("🎙️ TrueVoice")
 st.caption("Generación de audio con clonación de voz — Powered by VibeVoice")
 
-tab_generate, tab_voices = st.tabs(["🗣️ Generar Audio", "🎤 Gestionar Voces"])
+tab_generate, tab_outputs, tab_voices = st.tabs(["🗣️ Generar Audio", "📂 Audios Generados", "🎤 Gestionar Voces"])
 
 # ── TAB 1: Generar Audio ────────────────────────────────────────────────────
 with tab_generate:
@@ -324,51 +369,215 @@ with tab_generate:
         elif not selected_voice:
             st.warning("⚠️ Selecciona una voz.")
         else:
-            with st.spinner(f"Generando audio... Esto puede tardar varios minutos."):
-                payload = {
-                    "text": text_input,
-                    "voice_name": selected_voice,
-                    "custom_output_name": custom_name if custom_name.strip() else None,
-                    "model": selected_model,
-                    "output_format": output_format,
-                    "cfg_scale": cfg_scale,
-                    "ddpm_steps": ddpm_steps,
-                    "disable_prefill": disable_prefill,
-                }
+            payload = {
+                "text": text_input,
+                "voice_name": selected_voice,
+                "custom_output_name": custom_name if custom_name.strip() else None,
+                "output_directory": output_directory,
+                "model": selected_model,
+                "output_format": output_format,
+                "cfg_scale": cfg_scale,
+                "ddpm_steps": ddpm_steps,
+                "disable_prefill": disable_prefill,
+            }
 
-                # Añadir directorio si es personalizado
+            # Para manejar el ID antes de que termine el POST (complicado si es síncrono)
+            # pero vamos a usar el nombre personalizado si existe para pre-calcular el ID
+            temp_audio_id = custom_name.strip() if custom_name.strip() else "gen_audio"
+
+            with st.spinner(f"Generando audio..."):
+                # Mostrar barra de progreso vacía
+                prog_bar = st.progress(0)
+                status_txt = st.empty()
+                time_txt = st.empty()
+                
+                status_txt.info("🚀 Iniciando generación...")
+
+                # Como la API es síncrona, no podemos actualizar la barra MIENTRAS corre requests.post
+                # A menos que usemos un hilo, pero Streamlit no lo gestiona bien.
+                # Lo ideal sería que la API fuera asíncrona.
+                # Como compromiso, vamos a mostrar que está en proceso.
+                
                 endpoint = "/generate"
                 if voice_directory:
                     endpoint += f"?voice_directory={requests.utils.quote(voice_directory)}"
 
-                response = api_post_json(endpoint, payload)
+                try:
+                    # Estrategia: Polling del progreso en un bucle mientras el POST está pendiente (en otro hilo)
+                    # Usamos un hilo para que Streamlit no se bloquee y pueda actualizar la UI.
+                    
+                    import threading
+                    
+                    response_container = []
+                    # Generar un ID temporal para rastrear el progreso si no hay custom_name
+                    # Usamos milisegundos para evitar colisiones si el usuario pulsa rápido
+                    temp_id = custom_name.strip() if custom_name.strip() else f"gen_{int(time.time() * 1000)}"
+                    payload["audio_id_hint"] = temp_id 
+                    
+                    def make_request():
+                        try:
+                            # Hacemos el POST de generación de forma síncrona dentro del hilo
+                            resp = requests.post(f"{API_URL}{endpoint}", json=payload, timeout=600)
+                            response_container.append(resp)
+                        except Exception as ex:
+                            response_container.append(ex)
 
-                if response and response.status_code == 200:
-                    result = response.json()
-                    audio_id = result["audio_id"]
-                    filename = result["filename"]
+                    thread = threading.Thread(target=make_request)
+                    thread.start()
 
-                    st.success(f"✅ Audio generado: **{filename}**")
+                    start_time = time.time()
+                    last_progress_update = start_time
+                    
+                    while thread.is_alive():
+                        # Consultar progreso cada 0.5s
+                        try:
+                            p_resp = requests.get(f"{API_URL}/progress/{temp_id}", timeout=2)
+                            if p_resp.status_code == 200:
+                                p_data = p_resp.json()
+                                total = p_data.get("total", 0)
+                                current = p_data.get("current", 0)
+                                p_start = p_data.get("start_time", start_time)
+                                p_status = p_data.get("status", "starting")
+                                
+                                if total > 0:
+                                    pct = min(current / total, 0.99)
+                                    prog_bar.progress(pct)
+                                    elapsed = time.time() - p_start
+                                    
+                                    if current > 0:
+                                        # Actualizar UI cada 0.5s para no saturar
+                                        if time.time() - last_progress_update > 0.5:
+                                            speed = current / elapsed
+                                            remaining = (total - current) / speed
+                                            time_txt.caption(f"⏱️ Transcurrido: {elapsed:.1f}s | ⏳ Restante est.: {remaining:.1f}s")
+                                            status_txt.info(f"Generando... Paso {current}/{total} ({pct*100:.1f}%)")
+                                            last_progress_update = time.time()
+                                    else:
+                                        # Si el total ya se conoce pero vamos por el paso 0
+                                        elapsed = time.time() - p_start
+                                        status_txt.info(f"🚀 Iniciando difusión (Paso 0/{total})... ({elapsed:.1f}s)")
+                                        time_txt.caption(f"⏱️ Transcurrido: {elapsed:.1f}s")
+                                elif p_status == "starting":
+                                    elapsed = time.time() - p_start
+                                    status_txt.info(f"🚀 Iniciando generación... ({elapsed:.1f}s)")
+                                    time_txt.caption(f"⏱️ Transcurrido: {elapsed:.1f}s")
+                        except Exception:
+                            pass
+                        
+                        time.sleep(0.5)
 
-                    # Descarga y reproduce el audio
-                    audio_response = requests.get(f"{API_URL}/audio/{audio_id}")
-                    if audio_response.status_code == 200:
-                        audio_bytes = audio_response.content
+                    thread.join()
+                    if not response_container:
+                        st.error("❌ No se recibió respuesta de la API.")
+                        st.stop()
 
-                        st.audio(audio_bytes, format=f"audio/{output_format}")
+                    response = response_container[0]
+                    
+                    if isinstance(response, Exception):
+                        raise response
 
-                        st.download_button(
-                            label=f"⬇️ Descargar {filename}",
-                            data=audio_bytes,
-                            file_name=filename,
-                            mime=f"audio/{output_format}",
-                        )
-                else:
-                    error_detail = response.json().get("detail", "Error desconocido") if response else "Sin respuesta"
-                    st.error(f"❌ Error: {error_detail}")
+                    if response.status_code == 200:
+                        result = response.json()
+                        audio_id = result["audio_id"]
+                        filename = result["filename"]
+
+                        prog_bar.progress(100)
+                        st.success(f"✅ Audio generado: **{filename}**")
+                        
+                        final_dir = output_directory if output_directory else "api_outputs"
+                        st.info(f"📍 Ruta: `{final_dir}/{filename}`")
+
+                        # Descarga y reproduce el audio
+                        audio_get_url = f"{API_URL}/audio/{audio_id}"
+                        if output_directory:
+                            audio_get_url += f"?directory={requests.utils.quote(output_directory)}"
+                            
+                        audio_response = requests.get(audio_get_url)
+                        if audio_response.status_code == 200:
+                            st.audio(audio_response.content, format=f"audio/{output_format}")
+                    else:
+                        error_detail = response.json().get("detail", "Error desconocido")
+                        st.error(f"❌ Error: {error_detail}")
+                except Exception as e:
+                    st.error(f"❌ Error de conexión: {e}")
 
 
-# ── TAB 2: Gestionar Voces ──────────────────────────────────────────────────
+# ── TAB 2: Audios Generados ─────────────────────────────────────────────────
+with tab_outputs:
+    st.subheader("📁 Audios Generados")
+    
+    out_params = {"directory": output_directory} if output_directory else {}
+    try:
+        resp = requests.get(f"{API_URL}/outputs", params=out_params, timeout=10)
+        outputs = resp.json() if resp.status_code == 200 else []
+    except:
+        outputs = []
+
+    if not outputs:
+        st.info("No hay audios generados en esta carpeta.")
+    else:
+        st.write(f"Se han encontrado **{len(outputs)}** archivos en la carpeta de salida.")
+        
+        # Opciones de borrado
+        with st.expander("🗑️ Acciones de borrado"):
+            col_sel1, col_sel2 = st.columns(2)
+            with col_sel1:
+                if st.button("Seleccionar Todos"):
+                    st.session_state.selected_files = [f["filename"] for f in outputs]
+            with col_sel2:
+                if st.button("Desmarcar Todos"):
+                    st.session_state.selected_files = []
+
+            selected = st.multiselect(
+                "Archivos a borrar", 
+                [f["filename"] for f in outputs],
+                key="delete_multiselect"
+            )
+            
+            if selected:
+                if st.button(f"🔥 Borrar {len(selected)} archivos", type="primary"):
+                    del_params = {"filenames": selected}
+                    if output_directory:
+                        del_params["directory"] = output_directory
+                    
+                    try:
+                        del_resp = requests.delete(f"{API_URL}/outputs/delete", params=del_params)
+                        if del_resp.status_code == 200:
+                            st.success(f"Borrados: {', '.join(del_resp.json()['deleted'])}")
+                            st.rerun()
+                        else:
+                            st.error("Error al borrar archivos")
+                    except Exception as e:
+                        st.error(f"Error de conexión: {e}")
+
+        st.divider()
+        
+        # Tabla de archivos
+        for f in outputs:
+            c1, c2, c3 = st.columns([3, 1, 1])
+            with c1:
+                st.write(f"📄 **{f['filename']}**")
+                st.caption(f"📅 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(f['created']))} | 📏 {f['size']/1024:.1f} KB")
+            with c2:
+                # Reproductor para previsualizar
+                audio_id = f["id"]
+                audio_url = f"{API_URL}/audio/{audio_id}"
+                if output_directory:
+                    audio_url += f"?directory={requests.utils.quote(output_directory)}"
+                
+                if st.button("▶️ Escuchar", key=f"play_{f['filename']}"):
+                    st.audio(audio_url)
+            with c3:
+                # Borrado individual
+                if st.button("🗑️", key=f"del_{f['filename']}", help="Borrar este archivo"):
+                    del_params = {"filenames": [f["filename"]]}
+                    if output_directory:
+                        del_params["directory"] = output_directory
+                    requests.delete(f"{API_URL}/outputs/delete", params=del_params)
+                    st.rerun()
+
+
+# ── TAB 3: Gestionar Voces ──────────────────────────────────────────────────
 with tab_voices:
     st.subheader("Voces disponibles")
 

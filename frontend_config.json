@@ -1,10 +1,12 @@
 {
-    "voice_folder_type": "Escoger carpeta local",
+    "voice_folder_type": "Carpeta por defecto (TrueVoice/voices)",
     "custom_folder_path": "",
+    "output_folder_type": "Escoger carpeta local",
+    "custom_output_path": "C:\\Users\\the_h\\Desktop\\salida audios",
     "selected_voice": "Lobato_WAV",
     "selected_model_name": "VibeVoice 1.5B (recomendado)",
     "output_format": "wav",
-    "cfg_scale": 1.5,
-    "ddpm_steps": 25,
+    "cfg_scale": 2.0,
+    "ddpm_steps": 10,
     "disable_prefill": false
 }

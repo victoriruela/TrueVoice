@@ -53,5 +53,60 @@ def apply_patches():
             return old_prep(self, *args, **kwargs)
         
         VibeVoiceForConditionalGenerationInference._prepare_cache_for_generation = robust_prep
+
+        # 4. Patch generate to print progress
+        old_generate = VibeVoiceForConditionalGenerationInference.generate
+
+        def progressive_generate(self, *args, **kwargs):
+            # We want to catch the 'step' in the loop. 
+            # Since the loop is inside generate, we can't easily hook it without 
+            # re-implementing or using a custom tqdm_class.
+            
+            class ProgressTqdm:
+                def __init__(self, iterable, **tqdm_kwargs):
+                    self.iterable = iterable
+                    try:
+                        self.total = len(iterable)
+                    except (TypeError, AttributeError):
+                        self.total = 0
+                    self.n = 0
+                    if self.total > 0:
+                        import sys
+                        sys.stdout.write(f"PROGRESS_START:{self.total}\n")
+                        sys.stdout.flush()
+                        sys.stderr.write(f"PROGRESS_START:{self.total}\n")
+                        sys.stderr.flush()
+
+                def __iter__(self):
+                    if self.total == 0:
+                        try:
+                            self.total = len(self.iterable)
+                            if self.total > 0:
+                                import sys
+                                sys.stdout.write(f"PROGRESS_START:{self.total}\n")
+                                sys.stdout.flush()
+                                sys.stderr.write(f"PROGRESS_START:{self.total}\n")
+                                sys.stderr.flush()
+                        except: pass
+                    
+                    import sys
+                    for item in self.iterable:
+                        yield item
+                        self.n += 1
+                        sys.stdout.write(f"PROGRESS_STEP:{self.n}\n")
+                        sys.stdout.flush()
+                        # También a stderr por si acaso la API lee de ahí
+                        sys.stderr.write(f"PROGRESS_STEP:{self.n}\n")
+                        sys.stderr.flush()
+
+                def set_description(self, desc, refresh=True): pass
+                def close(self): pass
+
+            kwargs['tqdm_class'] = ProgressTqdm
+            kwargs['show_progress_bar'] = True
+            return old_generate(self, *args, **kwargs)
+
+        VibeVoiceForConditionalGenerationInference.generate = progressive_generate
+
     except (ImportError, AttributeError):
         pass

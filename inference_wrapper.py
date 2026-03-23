@@ -60,6 +60,10 @@ class VoiceMapper:
         self.voice_presets = dict(sorted(self.voice_presets.items()))
 
     def get_voice_path(self, speaker_name: str):
+        # Si es una ruta absoluta que existe, devolverla directamente
+        if os.path.isabs(speaker_name) and os.path.exists(speaker_name):
+            return speaker_name
+
         if speaker_name in self.voice_presets:
             return self.voice_presets[speaker_name]
         
