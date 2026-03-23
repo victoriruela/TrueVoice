@@ -297,7 +297,7 @@ cfg_scale = st.sidebar.slider(
     "CFG Scale",
     min_value=0.5,
     max_value=5.0,
-    value=st.session_state.config.get("cfg_scale", 2.3),
+    value=st.session_state.config.get("cfg_scale", 2.0),
     step=0.1,
     help="Controla la fidelidad al texto. Más alto = sigue más el texto (1.5-2.5 recomendado)",
 )
@@ -306,7 +306,7 @@ ddpm_steps = st.sidebar.slider(
     "DDPM Steps",
     min_value=1,
     max_value=100,
-    value=st.session_state.config.get("ddpm_steps", 25),
+    value=st.session_state.config.get("ddpm_steps", 30),
     step=1,
     help="Pasos de difusión. Más pasos = mejor calidad pero más lento (20-50 recomendado)",
 )

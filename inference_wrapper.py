@@ -108,7 +108,7 @@ def parse_txt_script(txt_content: str):
 
 def main():
     parser = argparse.ArgumentParser(description="VibeVoice Wrapper Inference")
-    parser.add_argument("--ddpm_steps", type=int, default=10)
+    parser.add_argument("--ddpm_steps", type=int, default=30)
     parser.add_argument("--model_path", type=str, default="microsoft/VibeVoice-1.5b")
     parser.add_argument("--txt_path", type=str, required=True)
     parser.add_argument("--speaker_names", type=str, nargs='+', default=['Alice'])
@@ -116,7 +116,7 @@ def main():
     parser.add_argument("--device", type=str, default=("cuda" if torch.cuda.is_available() else "cpu"))
     parser.add_argument("--checkpoint_path", type=str, default=None)
     parser.add_argument("--disable_prefill", action="store_true")
-    parser.add_argument("--cfg_scale", type=float, default=1.3)
+    parser.add_argument("--cfg_scale", type=float, default=2.0)
     parser.add_argument("--seed", type=int, default=None)
     
     args = parser.parse_args()

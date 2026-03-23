@@ -9,7 +9,26 @@ import argparse
 import os
 import sys
 import subprocess
+import time
 from pathlib import Path
+
+# Configurar path para encontrar el paquete 'vibevoice'
+project_root = Path(__file__).parent
+vibe_voice_repo = project_root / "VibeVoice"
+if str(vibe_voice_repo) not in sys.path:
+    sys.path.insert(0, str(vibe_voice_repo))
+
+# Aplicar parches y cargar componentes si es posible (solo para modo persistente)
+try:
+    from patches import apply_patches
+    apply_patches()
+    from vibevoice.modular.modeling_vibevoice_inference import VibeVoiceForConditionalGenerationInference
+    from vibevoice.processor.vibevoice_processor import VibeVoiceProcessor
+    from vibevoice.modular.lora_loading import load_lora_assets
+    import torch
+    VIBE_VOICE_AVAILABLE = True
+except ImportError:
+    VIBE_VOICE_AVAILABLE = False
 
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -458,8 +477,9 @@ def generate_speech_vibevoice(text, output_path,
                                model_name="microsoft/VibeVoice-1.5b",
                                voice_name="Alice", repo_path=None,
                                disable_prefill=False,
-                               cfg_scale=1.5,  # Añadido parámetro
-                               ddpm_steps=20):  # Añadido parámetro
+                               cfg_scale=2.0,
+                               ddpm_steps=30,
+                               persistent_model=None):
     """
     Genera audio desde texto usando VibeVoice.
 
@@ -472,6 +492,7 @@ def generate_speech_vibevoice(text, output_path,
         disable_prefill: Deshabilitar clonación de voz (más rápido, voz genérica)
         cfg_scale: CFG scale para la generación (default: 1.5, rango: 1.0-3.0)
         ddpm_steps: Número de pasos DDPM (default: 20, rango: 5-100)
+        persistent_model: Tupla (model, processor, cached_voice_data) para evitar recargar
     """
     voices_dir = repo_path / "demo" / "voices"
 
@@ -485,10 +506,8 @@ def generate_speech_vibevoice(text, output_path,
         return False
 
     # Para el script de inferencia, si es una ruta absoluta, se usa tal cual.
-    # Si no, se asume que es el nombre base que el VoiceMapper buscará en voices_dir.
     speaker_param = resolved_voice
     if not os.path.isabs(speaker_param):
-        # Si no es absoluta, extraemos solo el stem (ya que inference_wrapper/VoiceMapper busca .wav)
         speaker_param = Path(resolved_voice).stem
 
     output_ext = Path(output_path).suffix.lower()
@@ -496,6 +515,69 @@ def generate_speech_vibevoice(text, output_path,
         print(f"⚠️  Formato '{output_ext}' no soportado. Usando .wav por defecto.")
         output_path = str(Path(output_path).with_suffix(".wav"))
 
+    # MODO PERSISTENTE (En memoria)
+    if persistent_model:
+        model, processor, voice_cache = persistent_model
+        print(f" Generando en memoria (CFG={cfg_scale}, Steps={ddpm_steps})...")
+        
+        try:
+            device = next(model.parameters()).device
+            
+            # Gestionar caché de voz para evitar re-leer el archivo cada vez
+            voice_path = resolved_voice
+            if not os.path.isabs(voice_path):
+                voice_path = voices_dir / f"{resolved_voice}.wav"
+            
+            voice_key = str(voice_path)
+            if voice_key in voice_cache:
+                voice_samples = voice_cache[voice_key]
+                # print(f"   (Usando voz desde caché: {resolved_voice})")
+            else:
+                voice_samples = [str(voice_path)]
+                voice_cache[voice_key] = voice_samples
+                # print(f"   (Voz cargada en caché: {resolved_voice})")
+
+            if hasattr(model, 'set_ddpm_inference_steps'):
+                model.set_ddpm_inference_steps(num_steps=ddpm_steps)
+
+            full_script = f"Speaker 1: {text}".replace("’", "'")
+            
+            inputs = processor(
+                text=[full_script],
+                voice_samples=[voice_samples],
+                padding=True,
+                return_tensors="pt",
+            ).to(device)
+
+            start_time = time.time()
+            with torch.no_grad():
+                outputs = model.generate(
+                    **inputs,
+                    max_new_tokens=None,
+                    cfg_scale=cfg_scale,
+                    tokenizer=processor.tokenizer,
+                    generation_config={'do_sample': False},
+                    is_prefill=not disable_prefill,
+                )
+            print(f" ✅ Generación completada en {time.time() - start_time:.2f}s")
+
+            temp_wav = "temp_persistent_output.wav"
+            processor.save_audio(outputs.speech_outputs[0], output_path=temp_wav)
+            
+            if convert_audio(temp_wav, output_path):
+                if os.path.exists(temp_wav):
+                    os.remove(temp_wav)
+                return True
+            return False
+
+        except Exception as e:
+            print(f"❌ Error en generación persistente: {e}")
+            import traceback
+            traceback.print_exc()
+            print(" Reintentando mediante subproceso...")
+            # Fallback al método antiguo si falla el persistente
+    
+    # MODO SUBPROCESO (Método original)
     print(f" Texto:      {text[:100]}{'...' if len(text) > 100 else ''}")
     print(f" Voz:        {resolved_voice}")
     print(f" Modelo:     {model_name}")
@@ -508,8 +590,6 @@ def generate_speech_vibevoice(text, output_path,
     with open(temp_txt, "w", encoding="utf-8") as f:
         f.write(f"Speaker 1: {text}")
 
-    # demo_script = repo_path / "demo" / "inference_from_file.py"
-    # Usamos nuestro wrapper para aplicar parches y dejar el repo original intacto
     demo_script = Path(__file__).parent / "inference_wrapper.py"
     
     if not demo_script.exists():
@@ -525,13 +605,12 @@ def generate_speech_vibevoice(text, output_path,
         "--txt_path", temp_txt,
         "--speaker_names", speaker_param,
         "--output_dir", str(output_dir),
-        "--cfg_scale", str(cfg_scale),      # Pasa cfg_scale
-        "--ddpm_steps", str(ddpm_steps),    # Pasa ddpm_steps
+        "--cfg_scale", str(cfg_scale),
+        "--ddpm_steps", str(ddpm_steps),
     ]
     if disable_prefill:
         cmd.append("--disable_prefill")
 
-    # Configura el PYTHONPATH para que encuentre el paquete 'vibevoice'
     env = os.environ.copy()
     repo_abs = repo_path.resolve()
     if "PYTHONPATH" in env:
@@ -539,17 +618,17 @@ def generate_speech_vibevoice(text, output_path,
     else:
         env["PYTHONPATH"] = str(repo_abs)
 
-    print(" Ejecutando generación...")
-    print("   (La primera vez descarga el modelo ~6GB, puede tardar varios minutos)\n")
+    print(" Ejecutando generación (subproceso)...")
+    if not persistent_model:
+        print("   (La primera vez carga el modelo ~6GB, puede tardar varios minutos)\n")
 
-    # Usamos Popen para ver la salida en tiempo real y que la API la capture
     process = subprocess.Popen(
         cmd, 
-        stdout=sys.stdout, # Usar el descriptor real para evitar buffering intermedio
-        stderr=sys.stderr, # Usar el descriptor real
+        stdout=sys.stdout,
+        stderr=sys.stderr,
         env=env,
         cwd=str(Path(__file__).parent),
-        bufsize=1 # Line buffered
+        bufsize=1
     )
     
     process.wait()
@@ -655,9 +734,9 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
     
     # NUEVOS PARÁMETROS DE CALIDAD
     parser.add_argument("--cfg-scale", type=float, default=2,
-                        help="CFG scale para generación (1.0-3.0, default: 1.5). Más alto = más fidelidad al texto.")
+                        help="CFG scale para generación (1.0-3.0, default: 2.0). Más alto = más fidelidad al texto.")
     parser.add_argument("--ddpm-steps", type=int, default=30,
-                        help="Pasos de difusión DDPM (5-100, default: 20). Más pasos = mejor calidad pero más lento.")
+                        help="Pasos de difusión DDPM (5-100, default: 30). Más pasos = mejor calidad pero más lento.")
     
     parser.add_argument("--disable-prefill", action="store_true",
                         help="Deshabilitar clonación de voz (más rápido, voz genérica)")
@@ -738,6 +817,34 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
         print("\n" + "=" * 70)
         print(" MODO INTERACTIVO  (escribe 'salir' para terminar)")
         print("=" * 70)
+        
+        persistent_model = None
+        if VIBE_VOICE_AVAILABLE:
+            print(f" Cargando modelo {args.model} en memoria para generación rápida...")
+            print(f" Dispositivo: {'CUDA (NVIDIA GPU)' if torch.cuda.is_available() else 'CPU (⚠️ LENTO)'}")
+            try:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                load_dtype = torch.bfloat16 if device == "cuda" else torch.float32
+                attn_impl = "flash_attention_2" if device == "cuda" else "sdpa"
+                
+                start_load = time.time()
+                processor = VibeVoiceProcessor.from_pretrained(args.model)
+                model = VibeVoiceForConditionalGenerationInference.from_pretrained(
+                    args.model,
+                    torch_dtype=load_dtype,
+                    device_map=device,
+                    attn_implementation=attn_impl,
+                )
+                model.eval()
+                
+                persistent_model = (model, processor, {})
+                print(f" ✅ Modelo cargado correctamente en {time.time() - start_load:.2f}s.")
+            except Exception as e:
+                print(f" ⚠️  No se pudo cargar el modelo en memoria: {e}")
+                print(" Usando modo subproceso (más lento).")
+        else:
+            print(" ⚠️  Librerías de VibeVoice no encontradas. Usando modo subproceso.")
+
         print(f" CFG Scale:  {args.cfg_scale}")
         print(f" DDPM Steps: {args.ddpm_steps}\n")
 
@@ -761,7 +868,8 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
                                              voice_name, repo_path,
                                              args.disable_prefill,
                                              args.cfg_scale,
-                                             args.ddpm_steps):
+                                             args.ddpm_steps,
+                                             persistent_model=persistent_model):
                     counter += 1
                     print(f" Guardado: {output_file}\n")
 
