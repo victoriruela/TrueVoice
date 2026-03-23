@@ -32,20 +32,26 @@ app.add_middleware(
 # ── Rutas del proyecto ──────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.resolve()
 VIBEVOICE_REPO = PROJECT_ROOT / "VibeVoice"
-VOICES_DIR = VIBEVOICE_REPO / "demo" / "voices"
+# Directorio por defecto: carpeta voices de TrueVoice
+DEFAULT_VOICES_DIR = PROJECT_ROOT / "voices"
+VIBEVOICE_VOICES_DIR = VIBEVOICE_REPO / "demo" / "voices"
 OUTPUTS_DIR = PROJECT_ROOT / "api_outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
+DEFAULT_VOICES_DIR.mkdir(exist_ok=True) # Asegurar que existe
+
+# Variable global para mantener compatibilidad con código antiguo que pueda usarla
+VOICES_DIR = DEFAULT_VOICES_DIR
 
 print(f"[API] PROJECT_ROOT: {PROJECT_ROOT}")
-print(f"[API] VOICES_DIR:   {VOICES_DIR}")
+print(f"[API] DEFAULT_VOICES_DIR: {DEFAULT_VOICES_DIR}")
 print(f"[API] OUTPUTS_DIR:  {OUTPUTS_DIR}")
-print(f"[API] VOICES_DIR exists: {VOICES_DIR.exists()}")
 
 
 # ── Modelos Pydantic ────────────────────────────────────────────────────────
 class GenerateRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Texto a convertir en audio")
-    voice_name: str = Field("Alice", description="Nombre de la voz a usar")
+    voice_name: str = Field("Alice", description="Nombre de la voz o ruta completa al archivo .wav")
+    custom_output_name: Optional[str] = Field(None, description="Nombre personalizado para el archivo de salida")
     model: str = Field("microsoft/VibeVoice-1.5b", description="Modelo HuggingFace")
     output_format: str = Field("wav", description="Formato de salida: wav, mp3, flac, ogg")
     cfg_scale: float = Field(2.0, ge=0.5, le=5.0, description="CFG scale (0.5-5.0)")
@@ -77,26 +83,46 @@ DEFAULT_VOICES = {
     "Anchen": "zh-Anchen_man_bgm",
     "Bowen": "zh-Bowen_man",
     "Xinran": "zh-Xinran_woman",
-    "Lobato": "es-Lobato_man",
 }
 
 ALIAS_REVERSE = {v: k for k, v in DEFAULT_VOICES.items()}
 
 
-def _resolve_voice(voice_name: str) -> Optional[str]:
-    """Resuelve un nombre de voz al nombre exacto del archivo WAV."""
-    if voice_name in DEFAULT_VOICES:
-        resolved = DEFAULT_VOICES[voice_name]
-        if (VOICES_DIR / f"{resolved}.wav").exists():
-            return resolved
-
-    if (VOICES_DIR / f"{voice_name}.wav").exists():
+def _resolve_voice(voice_name: str, directory: Optional[str] = None) -> Optional[str]:
+    """Resuelve un nombre de voz al nombre exacto del archivo WAV o ruta absoluta."""
+    # Si es una ruta absoluta y existe, la usamos directamente
+    if os.path.isabs(voice_name) and voice_name.lower().endswith(".wav") and os.path.exists(voice_name):
         return voice_name
 
+    # Determinar qué directorio usar
+    target_dir = DEFAULT_VOICES_DIR
+    if directory:
+        custom_dir = Path(directory)
+        if custom_dir.exists() and custom_dir.is_dir():
+            target_dir = custom_dir
+
+    if voice_name in DEFAULT_VOICES:
+        resolved = DEFAULT_VOICES[voice_name]
+        # Primero buscamos en el directorio proporcionado (con el nombre resuelto o el alias)
+        if (target_dir / f"{resolved}.wav").exists():
+            return str(target_dir / f"{resolved}.wav")
+        if (target_dir / f"{voice_name}.wav").exists():
+            return str(target_dir / f"{voice_name}.wav")
+        # Fallback a VibeVoice original para las voces por defecto
+        if (VIBEVOICE_VOICES_DIR / f"{resolved}.wav").exists():
+            return str(VIBEVOICE_VOICES_DIR / f"{resolved}.wav")
+
+    if (target_dir / f"{voice_name}.wav").exists():
+        return str(target_dir / f"{voice_name}.wav")
+
     voice_lower = voice_name.lower()
-    for wav in VOICES_DIR.glob("*.wav"):
-        if voice_lower in wav.stem.lower():
-            return wav.stem
+    for wav in target_dir.glob("*.wav"):
+        if voice_lower == wav.stem.lower(): # Coincidencia exacta primero
+            return str(wav)
+    
+    for wav in target_dir.glob("*.wav"):
+        if voice_lower in wav.stem.lower(): # Coincidencia parcial después
+            return str(wav)
 
     return None
 
@@ -108,24 +134,35 @@ def root():
 
 
 @app.get("/voices", response_model=list[VoiceInfo])
-def list_voices():
-    """Lista todas las voces disponibles."""
+def list_voices(directory: Optional[str] = None):
+    """Lista todas las voces disponibles en el directorio especificado o el predeterminado."""
     voices = []
-    for wav in sorted(VOICES_DIR.glob("*.wav")):
+    target_dir = DEFAULT_VOICES_DIR
+    
+    if directory:
+        custom_dir = Path(directory)
+        if custom_dir.exists() and custom_dir.is_dir():
+            target_dir = custom_dir
+        else:
+            # Si el directorio no existe, devolvemos lista vacía
+            return []
+
+    for wav in sorted(target_dir.glob("*.wav")):
         alias = ALIAS_REVERSE.get(wav.stem)
         voices.append(VoiceInfo(name=wav.stem, filename=wav.name, alias=alias))
+    
     return voices
 
 
 @app.post("/generate", response_model=GenerateResponse)
-def generate_audio(req: GenerateRequest):
+def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
     """Genera audio a partir de texto usando VibeVoice."""
     try:
-        # Valida la voz
-        resolved = _resolve_voice(req.voice_name)
-        if resolved is None:
-            available = [f.stem for f in VOICES_DIR.glob("*.wav")]
-            raise HTTPException(404, f"Voz '{req.voice_name}' no encontrada. Disponibles: {available}")
+        print(f"[API] Solicitud de generación recibida. Voz: {req.voice_name}, Directorio: {voice_directory}")
+        # Valida la voz (pasamos el directorio si existe)
+        resolved_path = _resolve_voice(req.voice_name, voice_directory)
+        if resolved_path is None:
+            raise HTTPException(404, f"Voz '{req.voice_name}' no encontrada en el directorio especificado ({voice_directory or 'default'}).")
 
         # Valida formato
         fmt = req.output_format.lower().lstrip(".")
@@ -133,15 +170,28 @@ def generate_audio(req: GenerateRequest):
             raise HTTPException(400, f"Formato '{fmt}' no soportado. Usa: wav, mp3, flac, ogg")
 
         # Genera un ID único para este audio
-        audio_id = uuid.uuid4().hex[:12]
-        output_file = OUTPUTS_DIR / f"{audio_id}.{fmt}"
+        if req.custom_output_name:
+            # Sanitizar nombre (quitar extensión si la puso)
+            base_name = Path(req.custom_output_name).stem
+            # Lógica de evitar duplicados: ejemplo, ejemplo_1, ejemplo_2...
+            final_name = f"{base_name}.{fmt}"
+            counter = 1
+            while (OUTPUTS_DIR / final_name).exists():
+                final_name = f"{base_name}_{counter}.{fmt}"
+                counter += 1
+            output_file = OUTPUTS_DIR / final_name
+            audio_id = Path(final_name).stem # Usamos el nombre base como ID si es personalizado
+        else:
+            # Comportamiento por defecto (UUID)
+            audio_id = uuid.uuid4().hex[:12]
+            output_file = OUTPUTS_DIR / f"{audio_id}.{fmt}"
 
         # Construye el comando
         vibevoice_script = PROJECT_ROOT / "vibevoice_app.py"
         cmd = [
             sys.executable, str(vibevoice_script),
             "--text", req.text,
-            "--voice-name", req.voice_name,
+            "--voice-name", resolved_path, # Pasamos la ruta resuelta
             "--model", req.model,
             "--output", str(output_file),
             "--cfg-scale", str(req.cfg_scale),
@@ -152,7 +202,7 @@ def generate_audio(req: GenerateRequest):
 
         print(f"\n{'='*60}")
         print(f"[API] Generando audio...")
-        print(f"[API] Voz: {req.voice_name} → {resolved}")
+        print(f"[API] Voz: {req.voice_name} → {resolved_path}")
         print(f"[API] Output: {output_file}")
         print(f"[API] Comando: {' '.join(cmd[:6])}...")
         print(f"{'='*60}")
@@ -161,6 +211,7 @@ def generate_audio(req: GenerateRequest):
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=600,
             cwd=str(PROJECT_ROOT),  # Asegura que el working directory sea el correcto
         )
@@ -237,7 +288,7 @@ async def upload_voice(
     if temp_path.exists():
         temp_path.unlink()
 
-    voice_path = VOICES_DIR / f"{voice_name}.wav"
+    voice_path = DEFAULT_VOICES_DIR / f"{voice_name}.wav"
     if not voice_path.exists():
         raise HTTPException(500, f"Error procesando voz: {result.stderr[-300:]}")
 
@@ -246,8 +297,8 @@ async def upload_voice(
 
 @app.delete("/voices/{voice_name}")
 def delete_voice(voice_name: str):
-    """Elimina una voz personalizada."""
-    voice_path = VOICES_DIR / f"{voice_name}.wav"
+    """Elimina una voz personalizada (solo del directorio por defecto)."""
+    voice_path = DEFAULT_VOICES_DIR / f"{voice_name}.wav"
     if not voice_path.exists():
         raise HTTPException(404, f"Voz '{voice_name}' no encontrada")
 

@@ -25,8 +25,6 @@ DEFAULT_VOICES = {
     "Anchen": "zh-Anchen_man_bgm",
     "Bowen":  "zh-Bowen_man",
     "Xinran": "zh-Xinran_woman",
-    "Lobato": "es-Lobato_man",
-    "Lobato2": "Extract_Lobato",
 }
 
 SUPPORTED_OUTPUT_FORMATS = {".wav", ".mp3", ".flac", ".ogg"}
@@ -507,7 +505,10 @@ def generate_speech_vibevoice(text, output_path,
     with open(temp_txt, "w", encoding="utf-8") as f:
         f.write(f"Speaker 1: {text}")
 
-    demo_script = repo_path / "demo" / "inference_from_file.py"
+    # demo_script = repo_path / "demo" / "inference_from_file.py"
+    # Usamos nuestro wrapper para aplicar parches y dejar el repo original intacto
+    demo_script = Path(__file__).parent / "inference_wrapper.py"
+    
     if not demo_script.exists():
         print(f"❌ Script de inferencia no encontrado: {demo_script}")
         return False
@@ -527,10 +528,18 @@ def generate_speech_vibevoice(text, output_path,
     if disable_prefill:
         cmd.append("--disable_prefill")
 
+    # Configura el PYTHONPATH para que encuentre el paquete 'vibevoice'
+    env = os.environ.copy()
+    repo_abs = repo_path.resolve()
+    if "PYTHONPATH" in env:
+        env["PYTHONPATH"] = f"{repo_abs};{env['PYTHONPATH']}"
+    else:
+        env["PYTHONPATH"] = str(repo_abs)
+
     print(" Ejecutando generación...")
     print("   (La primera vez descarga el modelo ~6GB, puede tardar varios minutos)\n")
 
-    result = subprocess.run(cmd, capture_output=False, text=True)
+    result = subprocess.run(cmd, capture_output=False, text=True, env=env)
 
     if result.returncode == 0:
         generated_file = output_dir / "temp_input_generated.wav"

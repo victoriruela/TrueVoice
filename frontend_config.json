@@ -1,0 +1,10 @@
+{
+    "voice_folder_type": "Escoger carpeta local",
+    "custom_folder_path": "",
+    "selected_voice": "Lobato_WAV",
+    "selected_model_name": "VibeVoice 1.5B (recomendado)",
+    "output_format": "wav",
+    "cfg_scale": 1.5,
+    "ddpm_steps": 25,
+    "disable_prefill": false
+}

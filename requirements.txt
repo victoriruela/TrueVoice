@@ -9,13 +9,15 @@ yt-dlp>=2024.1.0
 # API REST
 fastapi>=0.100.0
 uvicorn>=0.20.0
+python-multipart>=0.0.6
 
 # Frontend
 streamlit>=1.30.0
 requests>=2.28.0
 
 # Opcional: para procesar videos locales
-# moviepy>=1.0.3
+moviepy>=1.0.3
 
 # Opcional: para mejor rendimiento con GPU NVIDIA
 # nvidia-cuda-runtime-cu12
+scipy>=1.10.0
