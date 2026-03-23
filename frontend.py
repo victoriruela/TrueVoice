@@ -112,10 +112,11 @@ st.set_page_config(
 
 
 # ── Funciones auxiliares ────────────────────────────────────────────────────
-def api_get(endpoint: str):
-    """GET a la API."""
+@st.cache_data(ttl=10)
+def api_get(endpoint: str, params: dict = None):
+    """GET a la API con caché ligera."""
     try:
-        r = requests.get(f"{API_URL}{endpoint}", timeout=10)
+        r = requests.get(f"{API_URL}{endpoint}", params=params, timeout=10)
         r.raise_for_status()
         return r.json()
     except requests.ConnectionError:
@@ -148,8 +149,11 @@ def api_post_form(endpoint: str, data: dict, files: dict):
 
 
 # ── Verificar conexión a la API ─────────────────────────────────────────────
-api_status = api_get("/")
-if not api_status:
+# No usamos caché para el healthcheck inicial
+try:
+    api_status = requests.get(f"{API_URL}/", timeout=5).json()
+except:
+    st.error("❌ No se puede conectar con la API.")
     st.stop()
 
 
@@ -210,13 +214,7 @@ else:
 
 # Obtener voces de la carpeta seleccionada
 params = {"directory": voice_directory} if voice_directory else {}
-try:
-    r = requests.get(f"{API_URL}/voices", params=params, timeout=10)
-    r.raise_for_status()
-    voices_data = r.json()
-except Exception as e:
-    st.sidebar.error(f"Error cargando voces: {e}")
-    voices_data = []
+voices_data = api_get("/voices", params=params) or []
 
 voice_names = [v["alias"] or v["name"] for v in voices_data]
 
@@ -237,7 +235,11 @@ else:
     )
 
 # Modelos
-models_data = api_get("/models") or []
+@st.cache_data(ttl=60)
+def get_models():
+    return api_get("/models") or []
+
+models_data = get_models()
 model_options = {m["name"]: m["id"] for m in models_data}
 model_names = list(model_options.keys())
 
@@ -514,77 +516,148 @@ with tab_generate:
 
 # ── TAB 2: Audios Generados ─────────────────────────────────────────────────
 with tab_outputs:
-    st.subheader("📁 Audios Generados")
-    
-    out_params = {"directory": output_directory} if output_directory else {}
-    try:
-        resp = requests.get(f"{API_URL}/outputs", params=out_params, timeout=10)
-        outputs = resp.json() if resp.status_code == 200 else []
-    except:
-        outputs = []
-
-    if not outputs:
-        st.info("No hay audios generados en esta carpeta.")
-    else:
-        st.write(f"Se han encontrado **{len(outputs)}** archivos en la carpeta de salida.")
+    @st.fragment
+    def render_outputs():
+        st.subheader("📁 Audios Generados")
         
-        # Opciones de borrado
-        with st.expander("🗑️ Acciones de borrado"):
-            col_sel1, col_sel2 = st.columns(2)
-            with col_sel1:
-                if st.button("Seleccionar Todos"):
-                    st.session_state.selected_files = [f["filename"] for f in outputs]
-            with col_sel2:
-                if st.button("Desmarcar Todos"):
-                    st.session_state.selected_files = []
+        out_params = {"directory": output_directory} if output_directory else {}
+        # Usamos api_get que tiene caché para la lista de archivos
+        outputs = api_get("/outputs", params=out_params) or []
 
-            selected = st.multiselect(
-                "Archivos a borrar", 
-                [f["filename"] for f in outputs],
-                key="delete_multiselect"
-            )
+        # --- Inicialización de estado para selección de archivos ---
+        if "selected_files" not in st.session_state:
+            st.session_state.selected_files = set()
+
+        if not outputs:
+            st.info("No hay audios generados en esta carpeta.")
+        else:
+            # Fila superior: Conteo y Botones de selección/borrado
+            col_header1, col_header2, col_header3, col_header4 = st.columns([2, 1, 1, 1.5])
+            with col_header1:
+                st.write(f"Se han encontrado **{len(outputs)}** archivos en la carpeta de salida.")
             
-            if selected:
-                if st.button(f"🔥 Borrar {len(selected)} archivos", type="primary"):
-                    del_params = {"filenames": selected}
-                    if output_directory:
-                        del_params["directory"] = output_directory
-                    
-                    try:
-                        del_resp = requests.delete(f"{API_URL}/outputs/delete", params=del_params)
-                        if del_resp.status_code == 200:
-                            st.success(f"Borrados: {', '.join(del_resp.json()['deleted'])}")
-                            st.rerun()
-                        else:
-                            st.error("Error al borrar archivos")
-                    except Exception as e:
-                        st.error(f"Error de conexión: {e}")
-
-        st.divider()
-        
-        # Tabla de archivos
-        for f in outputs:
-            c1, c2, c3 = st.columns([3, 1, 1])
-            with c1:
-                st.write(f"📄 **{f['filename']}**")
-                st.caption(f"📅 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(f['created']))} | 📏 {f['size']/1024:.1f} KB")
-            with c2:
-                # Reproductor para previsualizar
-                audio_id = f["id"]
-                audio_url = f"{API_URL}/audio/{audio_id}"
-                if output_directory:
-                    audio_url += f"?directory={requests.utils.quote(output_directory)}"
-                
-                if st.button("▶️ Escuchar", key=f"play_{f['filename']}"):
-                    st.audio(audio_url)
-            with c3:
-                # Borrado individual
-                if st.button("🗑️", key=f"del_{f['filename']}", help="Borrar este archivo"):
-                    del_params = {"filenames": [f["filename"]]}
-                    if output_directory:
-                        del_params["directory"] = output_directory
-                    requests.delete(f"{API_URL}/outputs/delete", params=del_params)
+            with col_header2:
+                if st.button("Seleccionar todos"):
+                    st.session_state.selected_files = {f["filename"] for f in outputs}
                     st.rerun()
+            
+            with col_header3:
+                if st.button("Desseleccionar todos"):
+                    st.session_state.selected_files = set()
+                    st.rerun()
+
+            with col_header4:
+                # Sincronizar selected_files con outputs actuales
+                current_filenames = {f["filename"] for f in outputs}
+                st.session_state.selected_files = {f for f in st.session_state.selected_files if f in current_filenames}
+                
+                num_selected = len(st.session_state.selected_files)
+                if num_selected > 0:
+                    if st.button(f"🗑️ Borrar los {num_selected} audios seleccionados", type="primary"):
+                        del_params = {"filenames": list(st.session_state.selected_files)}
+                        if output_directory:
+                            del_params["directory"] = output_directory
+                        
+                        try:
+                            # Para borrar no usamos caché, invalidamos la caché de la lista de archivos
+                            st.cache_data.clear() 
+                            del_resp = requests.delete(f"{API_URL}/outputs/delete", params=del_params)
+                            if del_resp.status_code == 200:
+                                st.success(f"Borrados: {len(del_resp.json()['deleted'])} archivos")
+                                st.session_state.selected_files = set()
+                                st.rerun()
+                            else:
+                                st.error("Error al borrar archivos")
+                        except Exception as e:
+                            st.error(f"Error de conexión: {e}")
+
+            st.divider()
+            
+            # Estilo para filas seleccionadas (rojo)
+            # Mejoramos el selector CSS para que sea más agresivo
+            st.markdown("""
+                <style>
+                /* Estilo base para los botones de selección */
+                div.stButton > button[key^="btn_sel_"] {
+                    text-align: left;
+                    justify-content: flex-start;
+                    border: none !important;
+                    background: transparent !important;
+                    padding: 0 !important;
+                    color: inherit !important;
+                }
+                
+                /* Contenedor cuando está seleccionado - Usamos una clase que inyectaremos */
+                .selected-audio-row {
+                    background-color: #ffcccc !important;
+                    border: 2px solid #ff4b4b !important;
+                    border-radius: 5px;
+                    padding: 15px;
+                    margin: -15px; /* Compensa el padding del container de streamlit */
+                    position: relative;
+                    z-index: 1;
+                }
+                
+                /* Hack para forzar que el fondo se vea en el contenedor de Streamlit */
+                [data-testid="stVerticalBlockBorderWrapper"]:has(.selected-audio-row) {
+                    background-color: #ffcccc !important;
+                    border-color: #ff4b4b !important;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+
+            # Tabla de archivos
+            for f in outputs:
+                filename = f["filename"]
+                is_selected = filename in st.session_state.selected_files
+                
+                # Usamos un container para agrupar
+                with st.container(border=True):
+                    # Inyectamos una clase CSS personalizada si está seleccionado
+                    if is_selected:
+                        st.markdown(f'<div class="selected-audio-row">', unsafe_allow_html=True)
+                    
+                    c_info, c_play, c_del = st.columns([4, 1.5, 0.5])
+                    
+                    with c_info:
+                        # Al pulsar en el nombre, se selecciona/deselecciona
+                        # Usamos un botón que no parezca un botón de Streamlit estándar
+                        # para que parezca que pulsas en la fila
+                        if st.button(f"📄 **{filename}**", key=f"btn_sel_{filename}", use_container_width=True):
+                            if is_selected:
+                                st.session_state.selected_files.remove(filename)
+                            else:
+                                st.session_state.selected_files.add(filename)
+                            st.rerun()
+                        st.caption(f"📅 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(f['created']))} | 📏 {f['size']/1024:.1f} KB")
+                    
+                    with c_play:
+                        audio_id = f["id"]
+                        audio_url = f"{API_URL}/audio/{audio_id}"
+                        if output_directory:
+                            audio_url += f"?directory={requests.utils.quote(output_directory)}"
+                        
+                        if st.button("▶️ Escuchar", key=f"play_{filename}"):
+                            st.audio(audio_url)
+                    
+                    with c_del:
+                        if st.button("🗑️", key=f"del_ind_{filename}", help="Borrar este audio permanentemente"):
+                            del_params = {"filenames": [filename]}
+                            if output_directory:
+                                del_params["directory"] = output_directory
+                            try:
+                                st.cache_data.clear()
+                                requests.delete(f"{API_URL}/outputs/delete", params=del_params)
+                                if filename in st.session_state.selected_files:
+                                    st.session_state.selected_files.remove(filename)
+                                st.rerun()
+                            except:
+                                st.error("Error al borrar")
+                    
+                    if is_selected:
+                        st.markdown('</div>', unsafe_allow_html=True)
+
+    render_outputs()
 
 
 # ── TAB 3: Gestionar Voces ──────────────────────────────────────────────────

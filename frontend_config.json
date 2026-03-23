@@ -1,13 +1,13 @@
 {
-    "voice_folder_type": "Carpeta por defecto (TrueVoice/voices)",
-    "custom_folder_path": "",
+    "voice_folder_type": "Escoger carpeta local",
+    "custom_folder_path": "C:\\Users\\the_h\\Desktop\\voices",
     "output_folder_type": "Escoger carpeta local",
     "custom_output_path": "C:\\Users\\the_h\\Desktop\\salida audios",
     "selected_voice": "Lobato_WAV",
     "selected_model_name": "VibeVoice 1.5B (recomendado)",
     "output_format": "wav",
-    "cfg_scale": 2.0,
-    "ddpm_steps": 10,
+    "cfg_scale": 1.6,
+    "ddpm_steps": 26,
     "disable_prefill": false,
     "last_text_input": "Ad\u00e1n fue el \u00fanico que gan\u00f3",
     "last_custom_name": "prueba"
