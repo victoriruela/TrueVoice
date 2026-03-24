@@ -99,12 +99,17 @@ if "config" not in st.session_state:
 
     # --- Gestión de múltiples tareas de generación ---
 if "generation_tasks" not in st.session_state:
-    # Si hay un texto previo en la config, lo cargamos como primera tarea
-    last_text = st.session_state.config.get("last_text_input", "")
-    last_name = st.session_state.config.get("last_custom_name", "")
-    st.session_state.generation_tasks = [
-        {"text": last_text, "custom_name": last_name, "id": 0, "status": "idle", "result": None}
-    ]
+    # Intentamos cargar las tareas guardadas en config
+    saved_tasks = st.session_state.config.get("generation_tasks", [])
+    if saved_tasks:
+        st.session_state.generation_tasks = saved_tasks
+    else:
+        # Si no hay tareas guardadas, usamos los campos antiguos o uno vacío
+        last_text = st.session_state.config.get("last_text_input", "")
+        last_name = st.session_state.config.get("last_custom_name", "")
+        st.session_state.generation_tasks = [
+            {"text": last_text, "custom_name": last_name, "id": 0, "status": "idle", "result": None}
+        ]
 
 def add_generation_task():
     # Obtener el último nombre para incremental
@@ -418,7 +423,7 @@ def render_sidebar(voices_data, models_data):
     
     # IMPORTANTE: Para que los valores persistan fuera del fragmento, debemos sincronizarlos
     # pero sin forzar rerun global.
-    st.session_state.last_sidebar_values = {
+    sidebar_values = {
         "voice_folder_type": selected_folder_type,
         "custom_folder_path": custom_folder_path,
         "output_folder_type": selected_output_folder_type,
@@ -433,6 +438,18 @@ def render_sidebar(voices_data, models_data):
         "output_directory": output_directory,
         "voice_directory": voice_directory
     }
+
+    # Comprobar si algo ha cambiado para guardar la config
+    changed = False
+    for k, v in sidebar_values.items():
+        if st.session_state.config.get(k) != v:
+            st.session_state.config[k] = v
+            changed = True
+    
+    if changed:
+        save_config(st.session_state.config)
+
+    st.session_state.last_sidebar_values = sidebar_values
 
 # Extraer valores para el sidebar antes de llamar al fragmento
 # Así evitamos "Running API Get" cada vez que se interactúa con el fragmento
@@ -586,15 +603,34 @@ with tab_generate:
     
     @st.fragment
     def render_generation_tasks():
+        tasks_changed = False
         for idx, task in enumerate(st.session_state.generation_tasks):
             with st.expander(f"Audio #{idx + 1}: {task['custom_name'] or 'Sin nombre'}", expanded=(task["result"] is None)):
                 col_t1, col_t2 = st.columns([4, 1])
                 with col_t1:
-                    task["text"] = st.text_area(f"Texto {idx+1}", value=task["text"], height=100, key=f"t_{task['id']}")
+                    # Cálculo de altura dinámica para que se vea todo el texto
+                    text_content = task["text"] or ""
+                    num_lines = text_content.count("\n") + 1
+                    dynamic_height = max(100, min(500, num_lines * 25 + 20)) # Min 100, Max 500 para evitar que sea excesivamente largo
+                    
+                    new_text = st.text_area(
+                        f"Texto {idx+1}", 
+                        value=task["text"], 
+                        height=dynamic_height, 
+                        key=f"t_{task['id']}"
+                    )
+                    if new_text != task["text"]:
+                        task["text"] = new_text
+                        tasks_changed = True
                 with col_t2:
-                    task["custom_name"] = st.text_input("Nombre", value=task["custom_name"], key=f"n_{task['id']}")
+                    new_name = st.text_input("Nombre", value=task["custom_name"], key=f"n_{task['id']}")
+                    if new_name != task["custom_name"]:
+                        task["custom_name"] = new_name
+                        tasks_changed = True
                     if st.button("🗑️", key=f"d_{task['id']}", use_container_width=True):
                         remove_generation_task(task["id"])
+                        st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
+                        save_config(st.session_state.config)
                         st.rerun(scope="fragment")
 
                 c1, c2 = st.columns([1, 3])
@@ -619,19 +655,46 @@ with tab_generate:
                             st.cache_data.clear()
                             st.rerun() # Rerun global para refrescar el tab de audios generados
 
+        if tasks_changed:
+            st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
+            save_config(st.session_state.config)
+
+        # Determinar si hay audios pendientes de guardar
+        pending_save = [t for t in st.session_state.generation_tasks if t["result"] is not None]
+
         st.divider()
 
         # Botones de control global al final
+        if pending_save:
+            if st.button("💾 GUARDAR TODO", type="primary", use_container_width=True, key="btn_save_all"):
+                saved_count = 0
+                for task in pending_save:
+                    res = task["result"]
+                    save_payload = {"audio_id": res["audio_id"], "output_directory": output_directory}
+                    s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
+                    if s_resp.status_code == 200:
+                        task["result"] = None
+                        saved_count += 1
+                
+                if saved_count > 0:
+                    st.toast(f"✅ Se han guardado {saved_count} audios")
+                    st.cache_data.clear()
+                    st.rerun()
+
         col_g1, col_g2, col_g3 = st.columns([1, 1, 2])
         with col_g1:
             if st.button("➕ Añadir nuevo texto", use_container_width=True, key="btn_add_bottom"):
                 add_generation_task()
+                st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
+                save_config(st.session_state.config)
                 st.rerun(scope="fragment")
         with col_g2:
             generate_all_btn = st.button("🚀 GENERAR TODO", type="primary", use_container_width=True, key="btn_gen_all")
         with col_g3:
             if st.button("🧹 Limpiar todos los textos", use_container_width=True, key="btn_clear_all"):
                 st.session_state.generation_tasks = [{"text": "", "custom_name": "", "id": 0, "status": "idle", "result": None}]
+                st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
+                save_config(st.session_state.config)
                 cleanup_temp_api()
                 st.rerun(scope="fragment")
 
