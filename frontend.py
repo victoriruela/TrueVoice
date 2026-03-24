@@ -181,6 +181,7 @@ def render_sidebar(voices_data, models_data):
                 st.session_state.config["voice_folder_type"] = "Carpeta por defecto (TrueVoice/voices)"
                 save_config(st.session_state.config)
         # Necesitamos rerun global porque la lista de voces cambiará
+        st.cache_data.clear() # Limpiar cache para que se actualice la lista de voces
         st.rerun()
 
     def on_output_folder_type_change():
@@ -224,7 +225,8 @@ def render_sidebar(voices_data, models_data):
             if new_path:
                 st.session_state.config["custom_folder_path"] = new_path
                 save_config(st.session_state.config)
-                st.rerun(scope="fragment")
+                st.cache_data.clear() # Limpiar cache para que se actualice la lista de voces
+                st.rerun() # Rerun global para que la lista de voces se actualice
         
         if custom_folder_path.strip():
             voice_directory = custom_folder_path
