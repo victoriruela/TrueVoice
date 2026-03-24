@@ -507,7 +507,7 @@ with tab_generate:
         
         payload = {
             "text": task["text"],
-            "voice_name": selected_voice,
+            "voice_name": st.session_state.selected_voice_sidebar,
             "custom_output_name": task["custom_name"] if task["custom_name"].strip() else None,
             "output_directory": output_directory,
             "model": selected_model,
@@ -517,10 +517,13 @@ with tab_generate:
             "disable_prefill": disable_prefill,
         }
 
-        with st.status(f"Generando Audio #{task_idx + 1}...", expanded=True) as status:
-            prog_bar = st.progress(0)
-            status_txt = st.empty()
-            time_txt = st.empty()
+        # Usar una columna para que aparezca a la izquierda
+        c_status, _ = st.columns([2, 1])
+        with c_status:
+            with st.status(f"Generando Audio #{task_idx + 1}...", expanded=True) as status:
+                prog_bar = st.progress(0)
+                status_txt = st.empty()
+                time_txt = st.empty()
             
             endpoint = "/generate"
             if voice_directory:
@@ -603,6 +606,63 @@ with tab_generate:
     
     @st.fragment
     def render_generation_tasks():
+        # Estilo CSS para botones dinámicos y globales
+        st.markdown("""
+            <style>
+            /* Botón GUARDAR TODO (verde) */
+            div.stButton > button[key="btn_save_all_green"] {
+                background-color: #28a745 !important;
+                color: white !important;
+                border: 1px solid #28a745 !important;
+            }
+            div.stButton > button[key="btn_save_all_green"]:hover {
+                background-color: #218838 !important;
+                border-color: #1e7e34 !important;
+            }
+
+            /* Botones de GUARDAR individuales (verde) */
+            div.stButton > button[key^="s_"] {
+                background-color: #28a745 !important;
+                color: white !important;
+                border: 1px solid #28a745 !important;
+            }
+            div.stButton > button[key^="s_"]:hover {
+                background-color: #218838 !important;
+                border-color: #1e7e34 !important;
+            }
+
+            /* Botones de GENERAR individuales (rojo) */
+            div.stButton > button[key^="g_"] {
+                background-color: #dc3545 !important;
+                color: white !important;
+                border: 1px solid #dc3545 !important;
+            }
+            div.stButton > button[key^="g_"]:hover {
+                background-color: #c82333 !important;
+                border-color: #bd2130 !important;
+            }
+
+            /* Botón GENERAR TODO (rojo) */
+            div.stButton > button[key="btn_gen_all"] {
+                background-color: #dc3545 !important;
+                color: white !important;
+                border: 1px solid #dc3545 !important;
+            }
+            div.stButton > button[key="btn_gen_all"]:hover {
+                background-color: #c82333 !important;
+                border-color: #bd2130 !important;
+            }
+            
+            /* Asegurar que el texto sea blanco para todos estos botones */
+            div.stButton > button[key="btn_save_all_green"] p,
+            div.stButton > button[key^="s_"] p,
+            div.stButton > button[key^="g_"] p,
+            div.stButton > button[key="btn_gen_all"] p {
+                color: white !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
         tasks_changed = False
         for idx, task in enumerate(st.session_state.generation_tasks):
             with st.expander(f"Audio #{idx + 1}: {task['custom_name'] or 'Sin nombre'}", expanded=(task["result"] is None)):
@@ -633,27 +693,37 @@ with tab_generate:
                         save_config(st.session_state.config)
                         st.rerun(scope="fragment")
 
-                c1, c2 = st.columns([1, 3])
-                with c1:
-                    if st.button("🚀 Generar", key=f"g_{task['id']}", use_container_width=True):
-                        run_generation(idx)
-                        st.rerun() # Rerun global para mostrar reproductor y botón de guardar correctamente
-
                 if task["result"]:
                     res = task["result"]
                     audio_get_url = f"{API_URL}/audio/{res['audio_id']}"
                     audio_response = requests.get(audio_get_url)
                     if audio_response.status_code == 200:
                         st.audio(audio_response.content, format=f"audio/{output_format}")
-                    
-                    if st.button("💾 GUARDAR", key=f"s_{task['id']}", type="primary"):
-                        save_payload = {"audio_id": res["audio_id"], "output_directory": output_directory}
-                        s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
-                        if s_resp.status_code == 200:
-                            st.toast(f"✅ Guardado")
-                            task["result"] = None
-                            st.cache_data.clear()
-                            st.rerun() # Rerun global para refrescar el tab de audios generados
+                
+                c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
+                
+                with c_btn1:
+                    # Botón GUARDAR a la izquierda si hay resultado
+                    if task["result"]:
+                        res = task["result"]
+                        if st.button("💾 GUARDAR", key=f"s_{task['id']}", use_container_width=True):
+                            save_payload = {"audio_id": res["audio_id"], "output_directory": output_directory}
+                            s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
+                            if s_resp.status_code == 200:
+                                st.toast(f"✅ Guardado")
+                                task["result"] = None
+                                st.cache_data.clear()
+                                st.rerun() # Rerun global para refrescar el tab de audios generados
+                    else:
+                        st.empty()
+
+                with c_btn2:
+                    if st.button("🚀 Generar", key=f"g_{task['id']}", use_container_width=True):
+                        # Asegurar que la voz seleccionada se guarde antes de generar
+                        st.session_state.config["selected_voice"] = st.session_state.get("selected_voice_sidebar")
+                        save_config(st.session_state.config)
+                        run_generation(idx)
+                        st.rerun() # Rerun global para mostrar reproductor y botón de guardar correctamente
 
         if tasks_changed:
             st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
@@ -662,47 +732,68 @@ with tab_generate:
         # Determinar si hay audios pendientes de guardar
         pending_save = [t for t in st.session_state.generation_tasks if t["result"] is not None]
 
-        st.divider()
-
-        # Botones de control global al final
         if pending_save:
-            if st.button("💾 GUARDAR TODO", type="primary", use_container_width=True, key="btn_save_all"):
-                saved_count = 0
-                for task in pending_save:
-                    res = task["result"]
-                    save_payload = {"audio_id": res["audio_id"], "output_directory": output_directory}
-                    s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
-                    if s_resp.status_code == 200:
-                        task["result"] = None
-                        saved_count += 1
-                
-                if saved_count > 0:
-                    st.toast(f"✅ Se han guardado {saved_count} audios")
-                    st.cache_data.clear()
-                    st.rerun()
+            col_g1, col_g2, col_g3, col_g4 = st.columns([1, 1, 1, 1])
+            with col_g1:
+                btn_save_all = st.button("💾 GUARDAR TODO", use_container_width=True, key="btn_save_all_green")
+            with col_g2:
+                btn_gen_all = st.button("🚀 GENERAR TODO", use_container_width=True, key="btn_gen_all")
+            with col_g3:
+                btn_add = st.button("➕ Añadir texto", use_container_width=True, key="btn_add_bottom")
+            with col_g4:
+                btn_clear = st.button("🧹 Limpiar todo", use_container_width=True, key="btn_clear_all")
+        else:
+            # Si no hay botón guardar todo, centramos los otros 3
+            btn_save_all = False
+            _, col_g2, col_g3, col_g4, _ = st.columns([0.5, 1, 1, 1, 0.5])
+            with col_g2:
+                btn_gen_all = st.button("🚀 GENERAR TODO", use_container_width=True, key="btn_gen_all")
+            with col_g3:
+                btn_add = st.button("➕ Añadir texto", use_container_width=True, key="btn_add_bottom")
+            with col_g4:
+                btn_clear = st.button("🧹 Limpiar todo", use_container_width=True, key="btn_clear_all")
 
-        col_g1, col_g2, col_g3 = st.columns([1, 1, 2])
-        with col_g1:
-            if st.button("➕ Añadir nuevo texto", use_container_width=True, key="btn_add_bottom"):
-                add_generation_task()
-                st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
-                save_config(st.session_state.config)
-                st.rerun(scope="fragment")
-        with col_g2:
-            generate_all_btn = st.button("🚀 GENERAR TODO", type="primary", use_container_width=True, key="btn_gen_all")
-        with col_g3:
-            if st.button("🧹 Limpiar todos los textos", use_container_width=True, key="btn_clear_all"):
-                st.session_state.generation_tasks = [{"text": "", "custom_name": "", "id": 0, "status": "idle", "result": None}]
-                st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
-                save_config(st.session_state.config)
-                cleanup_temp_api()
-                st.rerun(scope="fragment")
+        # Lógica de los botones
+        if btn_save_all:
+            # Asegurar que la voz seleccionada se guarde (por si acaso se cambió antes de guardar)
+            st.session_state.config["selected_voice"] = st.session_state.get("selected_voice_sidebar")
+            save_config(st.session_state.config)
+            saved_count = 0
+            for task in pending_save:
+                res = task["result"]
+                save_payload = {"audio_id": res["audio_id"], "output_directory": output_directory}
+                s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
+                if s_resp.status_code == 200:
+                    task["result"] = None
+                    saved_count += 1
+            
+            if saved_count > 0:
+                st.toast(f"✅ Se han guardado {saved_count} audios")
+                st.cache_data.clear()
+                st.rerun()
 
-        if generate_all_btn:
+        # Lógica de los botones (fuera de las columnas para evitar duplicidad de código si es posible)
+        if btn_gen_all:
+            # Asegurar que la voz seleccionada se guarde antes de generar
+            st.session_state.config["selected_voice"] = st.session_state.get("selected_voice_sidebar")
+            save_config(st.session_state.config)
             cleanup_temp_api()
             for i in range(len(st.session_state.generation_tasks)):
                 run_generation(i)
-            st.rerun() # Rerun global para asegurar que los audios generados se vean correctamente y el tab de audios se refresque si se cambia de tab
+            st.rerun()
+
+        if btn_add:
+            add_generation_task()
+            st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
+            save_config(st.session_state.config)
+            st.rerun(scope="fragment")
+
+        if btn_clear:
+            st.session_state.generation_tasks = [{"text": "", "custom_name": "", "id": 0, "status": "idle", "result": None}]
+            st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
+            save_config(st.session_state.config)
+            cleanup_temp_api()
+            st.rerun(scope="fragment")
 
     render_generation_tasks()
 
