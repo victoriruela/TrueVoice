@@ -17,6 +17,12 @@ from pathlib import Path
 API_URL = "http://localhost:8000"
 CONFIG_FILE = Path("frontend_config.json")
 
+def cleanup_temp_api():
+    try:
+        requests.post(f"{API_URL}/cleanup_temp", timeout=5)
+    except:
+        pass
+
 def load_config():
     if CONFIG_FILE.exists():
         try:
@@ -149,6 +155,11 @@ def api_post_form(endpoint: str, data: dict, files: dict):
 
 
 # ── Verificar conexión a la API ─────────────────────────────────────────────
+# Al iniciar/refrescar la página, limpiar temporales
+if "init_cleanup_done" not in st.session_state:
+    cleanup_temp_api()
+    st.session_state.init_cleanup_done = True
+
 # No usamos caché para el healthcheck inicial
 try:
     api_status = requests.get(f"{API_URL}/", timeout=5).json()
@@ -169,6 +180,9 @@ def render_sidebar(voices_data, models_data):
     folder_options = ["Carpeta por defecto (TrueVoice/voices)", "Escoger carpeta local"]
 
     def on_folder_type_change():
+        cleanup_temp_api()
+        if "current_generated_audio" in st.session_state:
+            del st.session_state.current_generated_audio
         if st.session_state.folder_type_selectbox == "Escoger carpeta local":
             new_path = select_folder_windows("Selecciona la carpeta donde están tus voces (.wav)")
             if new_path:
@@ -185,6 +199,9 @@ def render_sidebar(voices_data, models_data):
         st.rerun()
 
     def on_output_folder_type_change():
+        cleanup_temp_api()
+        if "current_generated_audio" in st.session_state:
+            del st.session_state.current_generated_audio
         if st.session_state.output_folder_type_selectbox == "Escoger carpeta local":
             new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
             if new_path:
@@ -429,6 +446,10 @@ with tab_generate:
         generate_btn = st.button("🚀 Generar Audio", type="primary", use_container_width=True)
 
     if generate_btn:
+        cleanup_temp_api()
+        if "current_generated_audio" in st.session_state:
+            del st.session_state.current_generated_audio
+            
         # Persistir configuración actual antes de generar
         st.session_state.config.update({
             "voice_folder_type": selected_folder_type,
@@ -562,16 +583,28 @@ with tab_generate:
                         result = response.json()
                         audio_id = result["audio_id"]
                         filename = result["filename"]
+                        is_temp = result.get("is_temp", False)
 
                         prog_bar.progress(100)
                         st.success(f"✅ Audio generado: **{filename}**")
                         
-                        final_dir = output_directory if output_directory else "api_outputs"
-                        st.info(f"📍 Ruta: `{final_dir}/{filename}`")
+                        if is_temp:
+                            st.info("⚠️ El audio es temporal. Pulsa 'Guardar Audio' para conservarlo.")
+                            # Guardar en estado para mostrar el botón de guardado
+                            st.session_state.current_generated_audio = {
+                                "audio_id": audio_id,
+                                "filename": filename,
+                                "output_format": output_format,
+                                "output_directory": output_directory
+                            }
+                        else:
+                            final_dir = output_directory if output_directory else "api_outputs"
+                            st.info(f"📍 Ruta: `{final_dir}/{filename}`")
 
                         # Descarga y reproduce el audio
                         audio_get_url = f"{API_URL}/audio/{audio_id}"
-                        if output_directory:
+                        # No pasamos el directorio si es temporal, la API ya lo sabe buscar en TEMP_DIR
+                        if not is_temp and output_directory:
                             audio_get_url += f"?directory={requests.utils.quote(output_directory)}"
                             
                         audio_response = requests.get(audio_get_url)
@@ -582,6 +615,32 @@ with tab_generate:
                         st.error(f"❌ Error: {error_detail}")
                 except Exception as e:
                     st.error(f"❌ Error de conexión: {e}")
+
+
+    # Botón de guardado si hay un audio temporal generado
+    if "current_generated_audio" in st.session_state:
+        cur = st.session_state.current_generated_audio
+        st.divider()
+        col_save1, col_save2 = st.columns([1, 2])
+        with col_save1:
+            if st.button("💾 GUARDAR AUDIO", type="primary", use_container_width=True):
+                save_payload = {
+                    "audio_id": cur["audio_id"],
+                    "output_directory": cur["output_directory"]
+                }
+                try:
+                    s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
+                    if s_resp.status_code == 200:
+                        st.toast(f"✅ Guardado correctamente: {s_resp.json()['filename']}")
+                        del st.session_state.current_generated_audio
+                        st.cache_data.clear() # Refrescar lista de audios
+                        st.rerun() # Forzar desaparición inmediata del botón
+                    else:
+                        st.error(f"❌ Error al guardar: {s_resp.text}")
+                except Exception as e:
+                    st.error(f"❌ Error de conexión: {e}")
+        with col_save2:
+            st.caption("Si no guardas el audio, se borrará al generar uno nuevo o actualizar la página.")
 
 
 # ── TAB 2: Audios Generados ─────────────────────────────────────────────────

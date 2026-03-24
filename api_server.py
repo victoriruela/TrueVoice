@@ -38,7 +38,9 @@ VIBEVOICE_REPO = PROJECT_ROOT / "VibeVoice"
 DEFAULT_VOICES_DIR = PROJECT_ROOT / "voices"
 VIBEVOICE_VOICES_DIR = VIBEVOICE_REPO / "demo" / "voices"
 OUTPUTS_DIR = PROJECT_ROOT / "api_outputs"
+TEMP_DIR = PROJECT_ROOT / "temp_outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
+TEMP_DIR.mkdir(exist_ok=True)
 DEFAULT_VOICES_DIR.mkdir(exist_ok=True) # Asegurar que existe
 
 # Variable global para mantener compatibilidad con código antiguo que pueda usarla
@@ -86,6 +88,12 @@ class GenerateResponse(BaseModel):
     message: str
     audio_id: Optional[str] = None
     filename: Optional[str] = None
+    is_temp: bool = False
+
+
+class SaveRequest(BaseModel):
+    audio_id: str
+    output_directory: Optional[str] = None
 
 
 # ── Utilidades ──────────────────────────────────────────────────────────────
@@ -185,16 +193,19 @@ def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
         if fmt not in ("wav", "mp3", "flac", "ogg"):
             raise HTTPException(400, f"Formato '{fmt}' no soportado. Usa: wav, mp3, flac, ogg")
 
-        # Determinar directorio de salida
-        target_output_dir = OUTPUTS_DIR
+        # Determinar directorio de salida (ahora siempre es el temporal inicialmente)
+        target_output_dir = TEMP_DIR
+        
+        # Guardar dónde debería ir finalmente para referencia
+        final_target_dir = OUTPUTS_DIR
         if req.output_directory:
             custom_out = Path(req.output_directory)
             if custom_out.exists() and custom_out.is_dir():
-                target_output_dir = custom_out
+                final_target_dir = custom_out
             else:
                 try:
                     custom_out.mkdir(parents=True, exist_ok=True)
-                    target_output_dir = custom_out
+                    final_target_dir = custom_out
                 except Exception as e:
                     print(f"[API] No se pudo crear el directorio de salida personalizado: {e}")
 
@@ -202,10 +213,10 @@ def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
         if req.custom_output_name:
             # Sanitizar nombre (quitar extensión si la puso)
             base_name = Path(req.custom_output_name).stem
-            # Lógica de evitar duplicados: ejemplo, ejemplo_1, ejemplo_2...
+            # Lógica de evitar duplicados en el destino final
             final_name = f"{base_name}.{fmt}"
             counter = 1
-            while (target_output_dir / final_name).exists():
+            while (final_target_dir / final_name).exists():
                 final_name = f"{base_name}_{counter}.{fmt}"
                 counter += 1
             output_file = target_output_dir / final_name
@@ -337,9 +348,10 @@ def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
 
         return GenerateResponse(
             success=True,
-            message="Audio generado correctamente",
+            message="Audio generado correctamente (Pendiente de guardar)",
             audio_id=audio_id,
             filename=output_file.name,
+            is_temp=True
         )
 
     except HTTPException:
@@ -353,6 +365,11 @@ def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
 @app.get("/audio/{audio_id}")
 def download_audio(audio_id: str, directory: Optional[str] = None):
     """Descarga un audio generado por su ID."""
+    # Primero buscar en temporal
+    matches = list(TEMP_DIR.glob(f"{audio_id}.*"))
+    if matches:
+        return FileResponse(matches[0], media_type="audio/mpeg", filename=matches[0].name)
+
     target_dir = OUTPUTS_DIR
     if directory:
         custom_dir = Path(directory)
@@ -363,6 +380,56 @@ def download_audio(audio_id: str, directory: Optional[str] = None):
     if not matches:
         raise HTTPException(404, f"Audio '{audio_id}' no encontrado")
     return FileResponse(matches[0], media_type="audio/mpeg", filename=matches[0].name)
+
+
+@app.post("/confirm_save")
+def confirm_save(req: SaveRequest):
+    """Mueve un audio de la carpeta temporal a la definitiva."""
+    matches = list(TEMP_DIR.glob(f"{req.audio_id}.*"))
+    if not matches:
+        raise HTTPException(404, f"Audio temporal '{req.audio_id}' no encontrado")
+    
+    temp_file = matches[0]
+    target_dir = OUTPUTS_DIR
+    if req.output_directory:
+        custom_dir = Path(req.output_directory)
+        if custom_dir.exists() and custom_dir.is_dir():
+            target_dir = custom_dir
+        else:
+            custom_dir.mkdir(parents=True, exist_ok=True)
+            target_dir = custom_dir
+
+    final_path = target_dir / temp_file.name
+    
+    # Manejar colisiones por si acaso
+    if final_path.exists():
+        base = temp_file.stem
+        ext = temp_file.suffix
+        counter = 1
+        while (target_dir / f"{base}_{counter}{ext}").exists():
+            counter += 1
+        final_path = target_dir / f"{base}_{counter}{ext}"
+
+    try:
+        import shutil
+        shutil.move(str(temp_file), str(final_path))
+        print(f"[API] Audio guardado permanentemente: {final_path}")
+        return {"success": True, "message": f"Audio guardado en {final_path}", "filename": final_path.name}
+    except Exception as e:
+        raise HTTPException(500, f"Error al guardar el archivo: {str(e)}")
+
+
+@app.post("/cleanup_temp")
+def cleanup_temp():
+    """Borra todos los archivos de la carpeta temporal."""
+    count = 0
+    for f in TEMP_DIR.glob("*.*"):
+        try:
+            f.unlink()
+            count += 1
+        except: pass
+    print(f"[API] Limpieza temporal: {count} archivos borrados")
+    return {"success": True, "count": count}
 
 
 @app.get("/progress/{audio_id}")

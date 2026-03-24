@@ -7,8 +7,8 @@
     "selected_model_name": "VibeVoice 1.5B (recomendado)",
     "output_format": "wav",
     "cfg_scale": 1.6,
-    "ddpm_steps": 26,
+    "ddpm_steps": 10,
     "disable_prefill": false,
-    "last_text_input": "Ad\u00e1n fue el \u00fanico que gan\u00f3",
+    "last_text_input": "Ad\u00e1n fue ",
     "last_custom_name": "prueba"
 }
