@@ -97,6 +97,54 @@ def select_folder_windows(title="Selecciona una carpeta"):
 if "config" not in st.session_state:
     st.session_state.config = load_config()
 
+    # --- Gestión de múltiples tareas de generación ---
+if "generation_tasks" not in st.session_state:
+    # Si hay un texto previo en la config, lo cargamos como primera tarea
+    last_text = st.session_state.config.get("last_text_input", "")
+    last_name = st.session_state.config.get("last_custom_name", "")
+    st.session_state.generation_tasks = [
+        {"text": last_text, "custom_name": last_name, "id": 0, "status": "idle", "result": None}
+    ]
+
+def add_generation_task():
+    # Obtener el último nombre para incremental
+    last_task = st.session_state.generation_tasks[-1] if st.session_state.generation_tasks else None
+    new_name = ""
+    if last_task and last_task["custom_name"]:
+        import re
+        name = last_task["custom_name"]
+        # Buscar número al final del nombre
+        match = re.search(r'(\d+)$', name)
+        if match:
+            num = int(match.group(1))
+            prefix = name[:match.start()]
+            # Manejar si el prefijo termina en guion bajo o similar
+            new_name = f"{prefix}{num + 1}"
+        else:
+            # Si no hay número, añadir _1 o 1 según prefieras
+            # Usaremos _1 si no hay número
+            new_name = f"{name}_1"
+    else:
+        new_name = f"audio_1"
+    
+    new_id = int(time.time() * 1000) # ID único basado en tiempo para evitar colisiones
+    st.session_state.generation_tasks.append({
+        "text": "", 
+        "custom_name": new_name, 
+        "id": new_id, 
+        "status": "idle", 
+        "result": None
+    })
+
+def remove_generation_task(task_id):
+    if len(st.session_state.generation_tasks) > 1:
+        st.session_state.generation_tasks = [t for t in st.session_state.generation_tasks if t["id"] != task_id]
+    else:
+        # Si es el último, solo lo limpiamos
+        st.session_state.generation_tasks = [
+            {"text": "", "custom_name": "", "id": 0, "status": "idle", "result": None}
+        ]
+
 # Sincronizar selectboxes y campos de texto con la configuración cargada
 if "folder_type_selectbox" not in st.session_state:
     st.session_state.folder_type_selectbox = st.session_state.config.get("voice_folder_type", "Carpeta por defecto (TrueVoice/voices)")
@@ -424,223 +472,176 @@ tab_generate, tab_outputs, tab_voices = st.tabs(["🗣️ Generar Audio", "📂 
 
 # ── TAB 1: Generar Audio ────────────────────────────────────────────────────
 with tab_generate:
-    st.subheader("Texto a convertir en audio")
+    st.subheader("Configuración de audios")
+    
+    # Contenedor para las tareas (LIMPIAR DUPLICADO ANTERIOR SI EXISTE)
+    # Nota: El bloque anterior quedó arriba por el search_replace previo.
+    # Vamos a limpiar el bloque duplicado que quedó entre lineas 472-529 aprox.
 
-    text_input = st.text_area(
-        "Escribe o pega tu texto aquí:",
-        height=200,
-        placeholder="Primera carrera del campeonato en el circuito australiano de Albert Park...",
-        key="text_input"
-    )
-
-    st.subheader("Nombre del archivo de salida")
-    custom_name = st.text_input(
-        "Nombre personalizado (opcional)", 
-        placeholder="ejemplo",
-        help="Si no se especifica, se usará un ID aleatorio. Si el nombre ya existe, se añadirá un sufijo (_1, _2, etc.)",
-        key="custom_name"
-    )
-
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        generate_btn = st.button("🚀 Generar Audio", type="primary", use_container_width=True)
-
-    if generate_btn:
-        cleanup_temp_api()
-        if "current_generated_audio" in st.session_state:
-            del st.session_state.current_generated_audio
-            
-        # Persistir configuración actual antes de generar
-        st.session_state.config.update({
-            "voice_folder_type": selected_folder_type,
-            "custom_folder_path": custom_folder_path,
-            "output_folder_type": selected_output_folder_type,
-            "custom_output_path": custom_output_path,
-            "selected_voice": selected_voice,
-            "selected_model_name": selected_model_name,
+    # Botones de control global
+    st.divider()
+    
+    # --- Definición de función de generación ---
+    def run_generation(task_idx):
+        task = st.session_state.generation_tasks[task_idx]
+        if not task["text"].strip():
+            st.warning(f"⚠️ El audio #{task_idx + 1} no tiene texto.")
+            return False
+        
+        payload = {
+            "text": task["text"],
+            "voice_name": selected_voice,
+            "custom_output_name": task["custom_name"] if task["custom_name"].strip() else None,
+            "output_directory": output_directory,
+            "model": selected_model,
             "output_format": output_format,
             "cfg_scale": cfg_scale,
             "ddpm_steps": ddpm_steps,
             "disable_prefill": disable_prefill,
-            "last_text_input": text_input,
-            "last_custom_name": custom_name
-        })
-        save_config(st.session_state.config)
+        }
 
-        if not text_input.strip():
-            st.warning("⚠️ Escribe algo de texto primero.")
-        elif not selected_voice:
-            st.warning("⚠️ Selecciona una voz.")
-        else:
-            payload = {
-                "text": text_input,
-                "voice_name": selected_voice,
-                "custom_output_name": custom_name if custom_name.strip() else None,
-                "output_directory": output_directory,
-                "model": selected_model,
-                "output_format": output_format,
-                "cfg_scale": cfg_scale,
-                "ddpm_steps": ddpm_steps,
-                "disable_prefill": disable_prefill,
-            }
+        with st.status(f"Generando Audio #{task_idx + 1}...", expanded=True) as status:
+            prog_bar = st.progress(0)
+            status_txt = st.empty()
+            time_txt = st.empty()
+            
+            endpoint = "/generate"
+            if voice_directory:
+                endpoint += f"?voice_directory={requests.utils.quote(voice_directory)}"
 
-            # Para manejar el ID antes de que termine el POST (complicado si es síncrono)
-            # pero vamos a usar el nombre personalizado si existe para pre-calcular el ID
-            temp_audio_id = custom_name.strip() if custom_name.strip() else "gen_audio"
-
-            with st.spinner(f"Generando audio..."):
-                # Mostrar barra de progreso vacía
-                prog_bar = st.progress(0)
-                status_txt = st.empty()
-                time_txt = st.empty()
+            try:
+                import threading
+                response_container = []
+                temp_id = task["custom_name"].strip() if task["custom_name"].strip() else f"gen_{task['id']}_{int(time.time() * 1000)}"
+                payload["audio_id_hint"] = temp_id 
                 
-                status_txt.info("🚀 Iniciando generación...")
+                def make_request():
+                    try:
+                        resp = requests.post(f"{API_URL}{endpoint}", json=payload, timeout=600)
+                        response_container.append(resp)
+                    except Exception as ex:
+                        response_container.append(ex)
 
-                # Como la API es síncrona, no podemos actualizar la barra MIENTRAS corre requests.post
-                # A menos que usemos un hilo, pero Streamlit no lo gestiona bien.
-                # Lo ideal sería que la API fuera asíncrona.
-                # Como compromiso, vamos a mostrar que está en proceso.
+                thread = threading.Thread(target=make_request)
+                thread.start()
+
+                start_time = time.time()
+                last_progress_update = start_time
                 
-                endpoint = "/generate"
-                if voice_directory:
-                    endpoint += f"?voice_directory={requests.utils.quote(voice_directory)}"
-
-                try:
-                    # Estrategia: Polling del progreso en un bucle mientras el POST está pendiente (en otro hilo)
-                    # Usamos un hilo para que Streamlit no se bloquee y pueda actualizar la UI.
-                    
-                    import threading
-                    
-                    response_container = []
-                    # Generar un ID temporal para rastrear el progreso si no hay custom_name
-                    # Usamos milisegundos para evitar colisiones si el usuario pulsa rápido
-                    temp_id = custom_name.strip() if custom_name.strip() else f"gen_{int(time.time() * 1000)}"
-                    payload["audio_id_hint"] = temp_id 
-                    
-                    def make_request():
-                        try:
-                            # Hacemos el POST de generación de forma síncrona dentro del hilo
-                            resp = requests.post(f"{API_URL}{endpoint}", json=payload, timeout=600)
-                            response_container.append(resp)
-                        except Exception as ex:
-                            response_container.append(ex)
-
-                    thread = threading.Thread(target=make_request)
-                    thread.start()
-
-                    start_time = time.time()
-                    last_progress_update = start_time
-                    
-                    while thread.is_alive():
-                        # Consultar progreso cada 0.5s
-                        try:
-                            p_resp = requests.get(f"{API_URL}/progress/{temp_id}", timeout=2)
-                            if p_resp.status_code == 200:
-                                p_data = p_resp.json()
-                                total = p_data.get("total", 0)
-                                current = p_data.get("current", 0)
-                                p_start = p_data.get("start_time", start_time)
-                                p_status = p_data.get("status", "starting")
-                                
-                                if total > 0:
-                                    pct = min(current / total, 0.99)
-                                    prog_bar.progress(pct)
-                                    elapsed = time.time() - p_start
-                                    
-                                    if current > 0:
-                                        # Actualizar UI cada 0.5s para no saturar
-                                        if time.time() - last_progress_update > 0.5:
-                                            speed = current / elapsed
-                                            remaining = (total - current) / speed
-                                            time_txt.caption(f"⏱️ Transcurrido: {elapsed:.1f}s | ⏳ Restante est.: {remaining:.1f}s")
-                                            status_txt.info(f"Generando... Paso {current}/{total} ({pct*100:.1f}%)")
-                                            last_progress_update = time.time()
-                                    else:
-                                        # Si el total ya se conoce pero vamos por el paso 0
-                                        elapsed = time.time() - p_start
-                                        status_txt.info(f"🚀 Iniciando difusión (Paso 0/{total})... ({elapsed:.1f}s)")
-                                        time_txt.caption(f"⏱️ Transcurrido: {elapsed:.1f}s")
-                                elif p_status == "starting":
-                                    elapsed = time.time() - p_start
-                                    status_txt.info(f"🚀 Iniciando generación... ({elapsed:.1f}s)")
-                                    time_txt.caption(f"⏱️ Transcurrido: {elapsed:.1f}s")
-                        except Exception:
-                            pass
-                        
-                        time.sleep(0.5)
-
-                    thread.join()
-                    if not response_container:
-                        st.error("❌ No se recibió respuesta de la API.")
-                        st.stop()
-
-                    response = response_container[0]
-                    
-                    if isinstance(response, Exception):
-                        raise response
-
-                    if response.status_code == 200:
-                        result = response.json()
-                        audio_id = result["audio_id"]
-                        filename = result["filename"]
-                        is_temp = result.get("is_temp", False)
-
-                        prog_bar.progress(100)
-                        st.success(f"✅ Audio generado: **{filename}**")
-                        
-                        if is_temp:
-                            st.info("⚠️ El audio es temporal. Pulsa 'Guardar Audio' para conservarlo.")
-                            # Guardar en estado para mostrar el botón de guardado
-                            st.session_state.current_generated_audio = {
-                                "audio_id": audio_id,
-                                "filename": filename,
-                                "output_format": output_format,
-                                "output_directory": output_directory
-                            }
-                        else:
-                            final_dir = output_directory if output_directory else "api_outputs"
-                            st.info(f"📍 Ruta: `{final_dir}/{filename}`")
-
-                        # Descarga y reproduce el audio
-                        audio_get_url = f"{API_URL}/audio/{audio_id}"
-                        # No pasamos el directorio si es temporal, la API ya lo sabe buscar en TEMP_DIR
-                        if not is_temp and output_directory:
-                            audio_get_url += f"?directory={requests.utils.quote(output_directory)}"
+                while thread.is_alive():
+                    try:
+                        p_resp = requests.get(f"{API_URL}/progress/{temp_id}", timeout=2)
+                        if p_resp.status_code == 200:
+                            p_data = p_resp.json()
+                            total = p_data.get("total", 0)
+                            current = p_data.get("current", 0)
+                            p_start = p_data.get("start_time", start_time)
                             
-                        audio_response = requests.get(audio_get_url)
-                        if audio_response.status_code == 200:
-                            st.audio(audio_response.content, format=f"audio/{output_format}")
-                    else:
-                        error_detail = response.json().get("detail", "Error desconocido")
-                        st.error(f"❌ Error: {error_detail}")
-                except Exception as e:
-                    st.error(f"❌ Error de conexión: {e}")
+                            if total > 0:
+                                pct = min(current / total, 0.99)
+                                prog_bar.progress(pct)
+                                elapsed = time.time() - p_start
+                                if current > 0:
+                                    if time.time() - last_progress_update > 0.5:
+                                        speed = current / elapsed
+                                        remaining = (total - current) / speed
+                                        time_txt.caption(f"⏱️ {elapsed:.1f}s | ⏳ Est: {remaining:.1f}s")
+                                        status_txt.info(f"Paso {current}/{total} ({pct*100:.1f}%)")
+                                        last_progress_update = time.time()
+                                else:
+                                    status_txt.info(f"🚀 Iniciando ({elapsed:.1f}s)...")
+                    except: pass
+                    time.sleep(0.5)
 
+                thread.join()
+                response = response_container[0]
+                if isinstance(response, Exception): raise response
 
-    # Botón de guardado si hay un audio temporal generado
-    if "current_generated_audio" in st.session_state:
-        cur = st.session_state.current_generated_audio
+                if response.status_code == 200:
+                    result = response.json()
+                    task["result"] = {
+                        "audio_id": result["audio_id"],
+                        "filename": result["filename"],
+                        "output_directory": output_directory
+                    }
+                    prog_bar.progress(100)
+                    status.update(label=f"✅ Audio #{task_idx + 1} listo", state="complete", expanded=False)
+                    return True
+                else:
+                    st.error(f"Error en audio #{task_idx + 1}: {response.json().get('detail')}")
+                    return False
+            except Exception as e:
+                st.error(f"Error conexión: {e}")
+                return False
+
+    # Redefinir el loop de tareas para usar la función
+    # (En una app real lo ideal es no re-renderizar todo, pero aquí es más simple)
+    # Sin embargo, Streamlit re-ejecuta todo el script, así que necesitamos capturar el clic antes.
+    
+    # Para que los botones individuales funcionen correctamente con la función, 
+    # los manejaremos mediante variables en session_state o comprobando el botón en el loop.
+    
+    # RE-IMPLEMENTACIÓN DEL LOOP CON GENERACIÓN FUNCIONAL
+    st.empty() # Placeholder
+    
+    @st.fragment
+    def render_generation_tasks():
+        for idx, task in enumerate(st.session_state.generation_tasks):
+            with st.expander(f"Audio #{idx + 1}: {task['custom_name'] or 'Sin nombre'}", expanded=(task["result"] is None)):
+                col_t1, col_t2 = st.columns([4, 1])
+                with col_t1:
+                    task["text"] = st.text_area(f"Texto {idx+1}", value=task["text"], height=100, key=f"t_{task['id']}")
+                with col_t2:
+                    task["custom_name"] = st.text_input("Nombre", value=task["custom_name"], key=f"n_{task['id']}")
+                    if st.button("🗑️", key=f"d_{task['id']}", use_container_width=True):
+                        remove_generation_task(task["id"])
+                        st.rerun(scope="fragment")
+
+                c1, c2 = st.columns([1, 3])
+                with c1:
+                    if st.button("🚀 Generar", key=f"g_{task['id']}", use_container_width=True):
+                        run_generation(idx)
+                        st.rerun() # Rerun global para mostrar reproductor y botón de guardar correctamente
+
+                if task["result"]:
+                    res = task["result"]
+                    audio_get_url = f"{API_URL}/audio/{res['audio_id']}"
+                    audio_response = requests.get(audio_get_url)
+                    if audio_response.status_code == 200:
+                        st.audio(audio_response.content, format=f"audio/{output_format}")
+                    
+                    if st.button("💾 GUARDAR", key=f"s_{task['id']}", type="primary"):
+                        save_payload = {"audio_id": res["audio_id"], "output_directory": output_directory}
+                        s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
+                        if s_resp.status_code == 200:
+                            st.toast(f"✅ Guardado")
+                            task["result"] = None
+                            st.cache_data.clear()
+                            st.rerun() # Rerun global para refrescar el tab de audios generados
+
         st.divider()
-        col_save1, col_save2 = st.columns([1, 2])
-        with col_save1:
-            if st.button("💾 GUARDAR AUDIO", type="primary", use_container_width=True):
-                save_payload = {
-                    "audio_id": cur["audio_id"],
-                    "output_directory": cur["output_directory"]
-                }
-                try:
-                    s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
-                    if s_resp.status_code == 200:
-                        st.toast(f"✅ Guardado correctamente: {s_resp.json()['filename']}")
-                        del st.session_state.current_generated_audio
-                        st.cache_data.clear() # Refrescar lista de audios
-                        st.rerun() # Forzar desaparición inmediata del botón
-                    else:
-                        st.error(f"❌ Error al guardar: {s_resp.text}")
-                except Exception as e:
-                    st.error(f"❌ Error de conexión: {e}")
-        with col_save2:
-            st.caption("Si no guardas el audio, se borrará al generar uno nuevo o actualizar la página.")
+
+        # Botones de control global al final
+        col_g1, col_g2, col_g3 = st.columns([1, 1, 2])
+        with col_g1:
+            if st.button("➕ Añadir nuevo texto", use_container_width=True, key="btn_add_bottom"):
+                add_generation_task()
+                st.rerun(scope="fragment")
+        with col_g2:
+            generate_all_btn = st.button("🚀 GENERAR TODO", type="primary", use_container_width=True, key="btn_gen_all")
+        with col_g3:
+            if st.button("🧹 Limpiar todos los textos", use_container_width=True, key="btn_clear_all"):
+                st.session_state.generation_tasks = [{"text": "", "custom_name": "", "id": 0, "status": "idle", "result": None}]
+                cleanup_temp_api()
+                st.rerun(scope="fragment")
+
+        if generate_all_btn:
+            cleanup_temp_api()
+            for i in range(len(st.session_state.generation_tasks)):
+                run_generation(i)
+            st.rerun() # Rerun global para asegurar que los audios generados se vean correctamente y el tab de audios se refresque si se cambia de tab
+
+    render_generation_tasks()
 
 
 # ── TAB 2: Audios Generados ─────────────────────────────────────────────────
