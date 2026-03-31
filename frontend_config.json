@@ -6,9 +6,33 @@
     "selected_voice": "Lobato_WAV",
     "selected_model_name": "VibeVoice 1.5B (recomendado)",
     "output_format": "wav",
-    "cfg_scale": 1.6,
+    "cfg_scale": 2.0,
     "ddpm_steps": 10,
     "disable_prefill": false,
     "last_text_input": "Ad\u00e1n fue ",
-    "last_custom_name": "prueba"
+    "last_custom_name": "prueba",
+    "selected_model": "microsoft/VibeVoice-1.5b",
+    "output_directory": "C:\\Users\\the_h\\Desktop\\salida audios",
+    "voice_directory": "C:\\Users\\the_h\\Desktop\\voices",
+    "generation_tasks": [
+        {
+            "text": "Carlos Men\u00e9ndez hoy adelant\u00f3 muchas posiciones. Hoy la putilla, debe estar orgullosa",
+            "custom_name": "prueba",
+            "id": 0,
+            "status": "idle",
+            "result": null
+        },
+        {
+            "text": "",
+            "custom_name": "prueba_1",
+            "id": 1774978173199,
+            "status": "idle",
+            "result": null
+        }
+    ],
+    "audio_output_folder": "C:\\Users\\the_h\\Desktop\\salida audios",
+    "texts_output_folder": "C:\\Users\\the_h\\Desktop\\salida textos",
+    "custom_texts_path": "C:\\Users\\the_h\\Desktop\\salida textos",
+    "texts_folder_type": "Escoger carpeta local",
+    "last_race_session": "Japon F1 2026_ Suzuka"
 }

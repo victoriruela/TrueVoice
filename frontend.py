@@ -27,10 +27,19 @@ def load_config():
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                config = json.load(f)
+                # Asegurar que las carpetas de salida tengan valores por defecto si no existen
+                if "output_folder_type" not in config:
+                    config["output_folder_type"] = "Usar carpeta por defecto (api_outputs)"
+                if "texts_folder_type" not in config:
+                    config["texts_folder_type"] = "Usar carpeta por defecto (race_sessions/textos)"
+                return config
         except Exception:
             return {}
-    return {}
+    return {
+        "output_folder_type": "Usar carpeta por defecto (api_outputs)",
+        "texts_folder_type": "Usar carpeta por defecto (race_sessions/textos)"
+    }
 
 def save_config(config):
     try:
@@ -249,7 +258,7 @@ def render_sidebar(voices_data, models_data):
                 save_config(st.session_state.config)
         # Necesitamos rerun global porque la lista de voces cambiará
         st.cache_data.clear() # Limpiar cache para que se actualice la lista de voces
-        st.rerun()
+        # st.rerun() # Eliminado para evitar error en callback
 
     def on_output_folder_type_change():
         cleanup_temp_api()
@@ -273,7 +282,7 @@ def render_sidebar(voices_data, models_data):
         
         # Forzar que la lista de audios se actualice inmediatamente
         st.cache_data.clear()
-        st.rerun()
+        # st.rerun() # Eliminado para evitar error en callback
 
     selected_folder_type = st.selectbox(
         "Origen de las voces",
@@ -356,7 +365,7 @@ def render_sidebar(voices_data, models_data):
         if custom_output_path:
             st.caption(f"📁 Ruta: {custom_output_path}")
         
-        if st.button("📂 Cambiar carpeta de salida", help="Elegir otra carpeta para guardar audios", use_container_width=True):
+        if st.button("📂 Cambiar carpeta de salida", help="Elegir otra carpeta para guardar audios", key="btn_change_out_audio", use_container_width=True):
             new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
             if new_path:
                 st.session_state.config["custom_output_path"] = new_path
@@ -369,6 +378,52 @@ def render_sidebar(voices_data, models_data):
     else:
         custom_output_path = ""
 
+    # Formato de salida de texto (Excel)
+    st.subheader("📄 Salida de Texto")
+    
+    def on_texts_folder_type_change():
+        if st.session_state.texts_folder_type_selectbox == "Escoger carpeta local":
+            new_path = select_folder_windows("Selecciona la carpeta para guardar los archivos Excel")
+            if new_path:
+                st.session_state.config["custom_texts_path"] = new_path
+                st.session_state.config["texts_folder_type"] = "Escoger carpeta local"
+                save_config(st.session_state.config)
+            else:
+                st.session_state.texts_folder_type_selectbox = "Carpeta por defecto (race_sessions/textos)"
+                st.session_state.config["texts_folder_type"] = "Carpeta por defecto (race_sessions/textos)"
+                save_config(st.session_state.config)
+        else:
+            st.session_state.config["texts_folder_type"] = "Carpeta por defecto (race_sessions/textos)"
+            save_config(st.session_state.config)
+        # st.rerun() # Eliminado para evitar error en callback
+
+    texts_folder_options = ["Carpeta por defecto (race_sessions/textos)", "Escoger carpeta local"]
+    saved_texts_folder_type = st.session_state.config.get("texts_folder_type", "Carpeta por defecto (race_sessions/textos)")
+    
+    # Asegurar que el index coincida
+    default_texts_folder_idx = texts_folder_options.index(saved_texts_folder_type) if saved_texts_folder_type in texts_folder_options else 0
+
+    st.selectbox(
+        "Carpeta de salida Excel",
+        texts_folder_options,
+        index=default_texts_folder_idx,
+        key="texts_folder_type_selectbox",
+        on_change=on_texts_folder_type_change
+    )
+
+    if st.session_state.config.get("texts_folder_type") == "Escoger carpeta local":
+        custom_texts_path = st.session_state.config.get("custom_texts_path", "")
+        if custom_texts_path:
+            st.caption(f"📁 Ruta: {custom_texts_path}")
+        
+        if st.button("📂 Cambiar carpeta de textos", help="Elegir otra carpeta para guardar Excel", key="btn_change_out_texts", use_container_width=True):
+            new_path = select_folder_windows("Selecciona la carpeta para guardar los archivos Excel")
+            if new_path:
+                st.session_state.config["custom_texts_path"] = new_path
+                save_config(st.session_state.config)
+                st.rerun()
+
+    st.divider()
     format_options = ["wav", "mp3", "flac", "ogg"]
     saved_format = st.session_state.config.get("output_format")
     default_format_idx = format_options.index(saved_format) if saved_format in format_options else 0
@@ -485,7 +540,7 @@ custom_output_path = sidebar_values.get("custom_output_path")
 st.title("🎙️ TrueVoice")
 st.caption("Generación de audio con clonación de voz — Powered by VibeVoice")
 
-tab_generate, tab_outputs, tab_voices = st.tabs(["🗣️ Generar Audio", "📂 Audios Generados", "🎤 Gestionar Voces"])
+tab_texts, tab_generate, tab_outputs, tab_voices = st.tabs(["📝 Generar textos y audios de carrera", "🗣️ Generar Audio", "📂 Audios Generados", "🎤 Gestionar Voces"])
 
 # ── TAB 1: Generar Audio ────────────────────────────────────────────────────
 with tab_generate:
@@ -1005,3 +1060,761 @@ with tab_voices:
                 else:
                     error = response.json().get("detail", "Error") if response else "Sin respuesta"
                     st.error(f"❌ Error: {error}")
+
+
+# ── TAB 1: Generar textos y audios de carrera ──────────────────────────────
+with tab_texts:
+    from race_parser import parse_race_file, parse_race_header, generate_ai_descriptions, generate_ai_intro, RaceEvent, RaceHeader
+
+    st.subheader("📝 Generar textos y audios de carrera")
+    st.caption("Sube un archivo XML de resultados de rFactor2 para extraer y narrar los eventos de la carrera.")
+
+    # ── Configuración Ollama ────────────────────────────────────────────────
+    with st.expander("⚙️ Configuración de Ollama", expanded=False):
+        col_url, col_model = st.columns([2, 1])
+        with col_url:
+            def on_ollama_url_change():
+                st.session_state.config["ollama_url"] = st.session_state.ollama_url_input
+                save_config(st.session_state.config)
+
+            ollama_url = st.text_input(
+                "URL de Ollama",
+                value=st.session_state.config.get("ollama_url", "http://localhost:11434"),
+                placeholder="http://localhost:11434",
+                key="ollama_url_input",
+                on_change=on_ollama_url_change
+            )
+        with col_model:
+            def on_ollama_model_change():
+                st.session_state.config["ollama_model"] = st.session_state.ollama_model_input
+                save_config(st.session_state.config)
+
+            ollama_model = st.text_input(
+                "Modelo",
+                value=st.session_state.config.get("ollama_model", "llama3.2"),
+                placeholder="llama3.2",
+                key="ollama_model_input",
+                on_change=on_ollama_model_change
+            )
+
+    ollama_url = st.session_state.get("ollama_url_input") or st.session_state.config.get("ollama_url", "http://localhost:11434")
+    ollama_model = st.session_state.get("ollama_model_input") or st.session_state.config.get("ollama_model", "llama3.2")
+
+    st.divider()
+
+    # Sesiones y rutas
+    import os, json as _json, dataclasses
+    SESSIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "race_sessions")
+    _default_audios_dir_main = os.path.join(SESSIONS_DIR, "audios")
+    _default_api_outputs = os.path.join(os.path.dirname(os.path.abspath(__file__)), "api_outputs")
+    
+    # AUDIOS_DIR: Ahora unificado con "Salida de Audio"
+    if st.session_state.config.get("output_folder_type") == "Escoger carpeta local":
+        AUDIOS_DIR = st.session_state.config.get("custom_output_path", _default_api_outputs)
+    else:
+        AUDIOS_DIR = _default_api_outputs
+    
+    # TEXTS_DIR: Basado en "Salida de Texto"
+    _default_texts_dir_main = os.path.join(SESSIONS_DIR, "textos")
+    if st.session_state.config.get("texts_folder_type") == "Escoger carpeta local":
+        TEXTS_DIR = st.session_state.config.get("custom_texts_path", _default_texts_dir_main)
+    else:
+        TEXTS_DIR = _default_texts_dir_main
+
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
+    os.makedirs(AUDIOS_DIR, exist_ok=True)
+    os.makedirs(TEXTS_DIR, exist_ok=True)
+
+    def _sanitize_filename(s: str, max_len: int = 60) -> str:
+        """Convierte una cadena en un nombre de archivo seguro."""
+        import re
+        s = re.sub(r'[^\w\s\-]', '', s, flags=re.UNICODE)
+        s = re.sub(r'[\s]+', '_', s.strip())
+        return s[:max_len]
+
+    def _audio_filename_for_event(ev) -> str:
+        lap_str = "formacion" if ev.lap == 0 else str(ev.lap)
+        ts_str = f"{ev.timestamp:.0f}"
+        summary_str = _sanitize_filename(ev.summary, 40)
+        return f"{lap_str}_{ts_str}_{summary_str}.wav"
+
+    def _audio_filename_for_intro() -> str:
+        return "intro_carrera.wav"
+
+    def _generate_audio_for_text(text: str, audio_filename: str) -> str:
+        """Generar audio vía API y guardarlo en AUDIOS_DIR con lógica de no-sobrescritura. 
+        Devuelve el nombre final del archivo generado o cadena vacía si falla."""
+        import requests as _req2
+        import shutil
+        import os
+        import time as _time
+
+        # Determinar nombre final (evitar sobrescribir)
+        base, ext = os.path.splitext(audio_filename)
+        target_path = os.path.join(AUDIOS_DIR, audio_filename)
+        counter = 1
+        final_filename = audio_filename
+        while os.path.exists(target_path):
+            final_filename = f"{base} ({counter}){ext}"
+            target_path = os.path.join(AUDIOS_DIR, final_filename)
+            counter += 1
+
+        payload = {
+            "text": text,
+            "voice_name": st.session_state.get("selected_voice_sidebar", ""),
+            "custom_output_name": os.path.splitext(final_filename)[0],
+            "output_directory": AUDIOS_DIR,
+            "model": selected_model,
+            "output_format": "wav",
+            "cfg_scale": cfg_scale,
+            "ddpm_steps": ddpm_steps,
+            "disable_prefill": disable_prefill,
+        }
+        
+        start_t = _time.time()
+        try:
+            # Mostrar contador mientras se genera
+            resp = None
+            
+            # Contenedor para el estado y el tiempo transcurrido
+            status_placeholder = st.empty()
+            
+            import threading
+            
+            response_container = []
+            exception_container = []
+            
+            def _make_request():
+                try:
+                    r = _req2.post(f"{API_URL}/generate", json=payload, timeout=300)
+                    response_container.append(r)
+                except Exception as e:
+                    exception_container.append(e)
+            
+            thread = threading.Thread(target=_make_request)
+            thread.start()
+            
+            while thread.is_alive():
+                current_elapsed = _time.time() - start_t
+                status_placeholder.markdown(f"⏱️ **{current_elapsed:.1f}s**")
+                _time.sleep(0.1)
+            
+            if exception_container:
+                raise exception_container[0]
+            
+            resp = response_container[0] if response_container else None
+            
+            status_placeholder.empty() # Limpiar al terminar
+            end_t = _time.time()
+            elapsed = end_t - start_t
+            
+            if resp and resp.status_code == 200:
+                result = resp.json()
+                # El archivo ya debería estar en AUDIOS_DIR con el nombre solicitado
+                generated_name = result.get("filename", "")
+                generated_path = os.path.join(AUDIOS_DIR, generated_name)
+                
+                # Si el nombre generado por la API no coincide con el final_filename (por la lógica de la API)
+                # o si necesitamos asegurar que se movió al destino final exacto
+                if generated_name != final_filename and os.path.exists(generated_path):
+                    shutil.move(generated_path, target_path)
+                
+                # Forzar confirm_save para asegurar que se mueva a la carpeta final (AUDIOS_DIR)
+                # si es que la API lo dejó en temporal (is_temp=True)
+                if result.get("is_temp"):
+                    save_payload = {
+                        "audio_id": result.get("audio_id"),
+                        "output_directory": AUDIOS_DIR
+                    }
+                    _req2.post(f"{API_URL}/confirm_save", json=save_payload, timeout=30)
+
+                # Guardar el tiempo de generación
+                if "audio_generation_times" not in st.session_state:
+                    st.session_state["audio_generation_times"] = {}
+                st.session_state["audio_generation_times"][final_filename] = elapsed
+
+                return final_filename
+            return ""
+        except Exception:
+            return ""
+
+    def _generate_text_for_event(event, ollama_url: str, ollama_model: str, used_descriptions: list = None,
+                                    all_events: list = None) -> str:
+        """Genera descripción IA para un único evento. Devuelve el texto generado o cadena vacía si falla."""
+        import requests as _req
+        type_hints = {
+            1: "adelantamiento en carrera de Fórmula 1",
+            2: "choque o contacto entre dos pilotos en carrera de Fórmula 1",
+            3: "choque de un piloto contra el muro o barrera en carrera de Fórmula 1"
+        }
+        avoid_hint = ""
+        if used_descriptions:
+            last_few = used_descriptions[-5:]
+            avoid_hint = f" Evita frases similares a: {'; '.join(last_few)}"
+        # Contexto de adelantamientos previos del piloto (solo para Tipo 1)
+        overtake_hint = ""
+        if event.event_type == 1 and all_events:
+            driver_a = event.summary.split(" adelanta a ")[0] if " adelanta a " in event.summary else ""
+            if driver_a:
+                prev_overtakes = sum(
+                    1 for e in all_events
+                    if e is not event and e.event_type == 1
+                    and " adelanta a " in e.summary and e.summary.startswith(driver_a)
+                    and (e.lap < event.lap or (e.lap == event.lap and e.timestamp < event.timestamp))
+                )
+                if prev_overtakes >= 3:
+                    overtake_hint = f" Menciona que este piloto ya lleva {prev_overtakes} adelantamientos en la carrera."
+        prompt = (
+            f"Eres un comentarista deportivo de Fórmula 1 apasionado y dinámico. "
+            f"Genera UNA SOLA frase corta (máximo 25 palabras) y emocionante describiendo este evento de "
+            f"{type_hints.get(event.event_type, 'carrera')}: '{event.summary}' en la vuelta {event.lap}. "
+            f"La descripción debe ser variada, natural y diferente a las anteriores.{overtake_hint} "
+            f"Responde SOLO con la frase, sin comillas ni explicaciones adicionales.{avoid_hint}"
+        )
+        try:
+            resp = _req.post(
+                f"{ollama_url}/api/generate",
+                json={
+                    "model": ollama_model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.9, "top_p": 0.95, "seed": id(event) % 9999}
+                },
+                timeout=30
+            )
+            if resp.status_code == 200:
+                return resp.json().get("response", "").strip().strip('"\'')
+            else:
+                st.error(f"❌ Ollama respondió {resp.status_code}: {resp.text[:300]}")
+        except Exception as _ex:
+            st.error(f"❌ Error al conectar con Ollama: {_ex}")
+        return ""
+
+
+    def _save_excel(name: str):
+        """Guarda la tabla de eventos en un archivo Excel en TEXTS_DIR."""
+        try:
+            import openpyxl
+        except ImportError:
+            return None
+        hdr = st.session_state.get("race_header")
+        evs = st.session_state.get("race_events", [])
+        event_audios = {}
+        for i, ev in enumerate(evs):
+            akey = f"event_audio_{i}"
+            if st.session_state.get(akey):
+                event_audios[str(i)] = st.session_state[akey]
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Eventos"
+        ws.append(["Vuelta", "Timestamp", "Tipo", "Resumen", "Descripción IA", "Audio"])
+        # Ordenar eventos por vuelta y luego por timestamp
+        sorted_evs = sorted(enumerate(evs), key=lambda x: (x[1].lap if x[1].lap != 0 else -1, x[1].timestamp))
+        for i, ev in sorted_evs:
+            lap_label = "Vuelta de formación" if ev.lap == 0 else str(ev.lap)
+            tipo = f"Tipo {ev.event_type}"
+            desc = st.session_state.get(f"desc_edit_{i}", ev.description or "")
+            audio_name = event_audios.get(str(i), "")
+            ws.append([lap_label, ev.timestamp, tipo, ev.summary, desc, audio_name])
+        safe_name = ".".join(c if c.isalnum() or c in " _-" else "_" for c in (name or "sesion")).strip()
+        excel_path = os.path.join(TEXTS_DIR, f"{safe_name}.xlsx")
+        wb.save(excel_path)
+        return excel_path
+
+    def _list_sessions():
+        return sorted([f[:-5] for f in os.listdir(SESSIONS_DIR) if f.endswith(".json")])
+
+    def _save_session(name: str):
+        hdr = st.session_state.get("race_header")
+        evs = st.session_state.get("race_events", [])
+        intro = st.session_state.get("race_intro_text", "")
+        # Recoger descripciones editadas del session_state
+        for i, ev in enumerate(evs):
+            key = f"desc_edit_{i}"
+            if key in st.session_state:
+                ev.description = st.session_state[key]
+        # Recoger audios generados
+        intro_audio = st.session_state.get("intro_audio_file", "")
+        event_audios = {}
+        for i, ev in enumerate(evs):
+            akey = f"event_audio_{i}"
+            if st.session_state.get(akey):
+                event_audios[str(i)] = st.session_state[akey]
+        data = {
+            "intro_text": intro,
+            "intro_audio": intro_audio,
+            "header": dataclasses.asdict(hdr) if hdr else {},
+            "events": [dataclasses.asdict(ev) for ev in evs],
+            "event_audios": event_audios,
+        }
+        path = os.path.join(SESSIONS_DIR, f"{name}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def _load_session(name: str):
+        from race_parser import RaceEvent, RaceHeader
+        path = os.path.join(SESSIONS_DIR, f"{name}.json")
+        with open(path, encoding="utf-8") as f:
+            data = _json.load(f)
+        hdr_d = data.get("header", {})
+        hdr = RaceHeader(**hdr_d) if hdr_d else None
+        evs = [RaceEvent(**e) for e in data.get("events", [])]
+        intro = data.get("intro_text", "")
+        intro_audio = data.get("intro_audio", "")
+        event_audios = data.get("event_audios", {})
+        
+        # Guardar en configuración como última sesión
+        st.session_state.config["last_race_session"] = name
+        save_config(st.session_state.config)
+        
+        return hdr, evs, intro, intro_audio, event_audios
+
+    def on_session_change():
+        selected = st.session_state.get("session_selector")
+        if selected and selected != "— Nueva sesión —":
+            try:
+                hdr_l, evs_l, intro_l, intro_audio_l, event_audios_l = _load_session(selected)
+                st.session_state["race_header"] = hdr_l
+                st.session_state["race_events"] = evs_l
+                st.session_state["race_intro_text"] = intro_l
+                st.session_state["race_ai_done"] = any(ev.description for ev in evs_l)
+                st.session_state["intro_audio_file"] = intro_audio_l
+                
+                # Limpiar y restaurar session_state
+                for k in list(st.session_state.keys()):
+                    if k.startswith("desc_edit_") or k.startswith("event_audio_"):
+                        del st.session_state[k]
+                for i, ev in enumerate(evs_l):
+                    st.session_state[f"desc_edit_{i}"] = ev.description or ""
+                    akey = str(i)
+                    if akey in event_audios_l:
+                        st.session_state[f"event_audio_{i}"] = event_audios_l[akey]
+                # Nota: success se mostrará en el siguiente rerun o mediante st.toast si estuviera disponible
+            except Exception as ex:
+                st.error(f"❌ Error al cargar sesión: {ex}")
+
+    sessions = _list_sessions()
+    
+    # Carga automática de la última sesión al iniciar
+    if "race_header" not in st.session_state and "last_race_session" in st.session_state.config:
+        last_sess = st.session_state.config["last_race_session"]
+        if last_sess in sessions:
+            try:
+                hdr_l, evs_l, intro_l, intro_audio_l, event_audios_l = _load_session(last_sess)
+                st.session_state["race_header"] = hdr_l
+                st.session_state["race_events"] = evs_l
+                st.session_state["race_intro_text"] = intro_l
+                st.session_state["race_ai_done"] = any(ev.description for ev in evs_l)
+                st.session_state["intro_audio_file"] = intro_audio_l
+                for i, ev in enumerate(evs_l):
+                    st.session_state[f"desc_edit_{i}"] = ev.description or ""
+                    akey = str(i)
+                    if akey in event_audios_l:
+                        st.session_state[f"event_audio_{i}"] = event_audios_l[akey]
+            except:
+                pass
+
+    col_sess_load, col_sess_save = st.columns([2, 1])
+    with col_sess_load:
+        if sessions:
+            # Determinar el índice por defecto para el selectbox
+            default_ix = 0
+            if "last_race_session" in st.session_state.config:
+                ls = st.session_state.config["last_race_session"]
+                if ls in sessions:
+                    default_ix = sessions.index(ls) + 1 # +1 por "Nueva sesión"
+
+            selected_session = st.selectbox(
+                "📁 Cargar sesión guardada",
+                options=["— Nueva sesión —"] + sessions,
+                index=default_ix,
+                key="session_selector",
+                on_change=on_session_change
+            )
+        else:
+            selected_session = "— Nueva sesión —"
+            st.info("No hay sesiones guardadas aún.")
+    with col_sess_save:
+        save_session_btn = st.button(
+            "💾 Guardar sesión",
+            type="secondary",
+            disabled=("race_header" not in st.session_state),
+            key="btn_save_session"
+        )
+
+    if save_session_btn and st.session_state.get("race_header"):
+        # Si hay generación de audios en curso, pararla
+        if st.session_state.get("all_audio_running"):
+            st.session_state["all_audio_stop"] = True
+        hdr_tmp = st.session_state["race_header"]
+        session_name = hdr_tmp.track_event or "sesion"
+        # Sanitizar nombre de archivo
+        session_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in session_name).strip()
+        _save_session(session_name)
+        
+        # Guardar en configuración como última sesión
+        st.session_state.config["last_race_session"] = session_name
+        save_config(st.session_state.config)
+        
+        excel_path = _save_excel(session_name)
+        if excel_path:
+            st.success(f"✅ Sesión guardada como **{session_name}** (Excel: `{os.path.basename(excel_path)}`)")
+        else:
+            st.success(f"✅ Sesión guardada como **{session_name}**")
+        st.session_state["all_audio_running"] = False
+        st.session_state["all_audio_stop"] = False
+        st.rerun()
+
+    st.divider()
+
+    # ── Subida de archivo ───────────────────────────────────────────────────
+    uploaded_xml = st.file_uploader(
+        "📂 Sube el archivo XML de resultados de carrera",
+        type=["xml"],
+        key="race_xml_uploader"
+    )
+
+    col_parse, col_intro, col_ai, col_all_audio = st.columns([1, 1, 1, 1])
+    with col_parse:
+        parse_btn = st.button("🔍 Parsear archivo", type="primary", disabled=(uploaded_xml is None), key="btn_parse_race")
+    with col_intro:
+        intro_btn = st.button(
+            "🎙️ Generar intro con IA",
+            type="secondary",
+            disabled=("race_header" not in st.session_state),
+            key="btn_intro_race"
+        )
+    with col_ai:
+        ai_btn = st.button(
+            "🤖 Generar descripciones con IA",
+            type="secondary",
+            disabled=("race_events" not in st.session_state or not st.session_state.get("race_events")),
+            key="btn_ai_race"
+        )
+    with col_all_audio:
+        all_audio_btn = st.button(
+            "🔊 Generar audio de todos los textos",
+            type="secondary",
+            disabled=("race_events" not in st.session_state or not st.session_state.get("race_events")),
+            key="btn_all_audio_race"
+        )
+
+    # ── Parseo ──────────────────────────────────────────────────────────────
+    if parse_btn and uploaded_xml is not None:
+        with st.spinner("Parseando archivo..."):
+            try:
+                xml_content = uploaded_xml.read().decode("utf-8", errors="replace")
+                header = parse_race_header(xml_content)
+                events = parse_race_file(xml_content)
+                st.session_state["race_header"] = header
+                st.session_state["race_events"] = events
+                st.session_state["race_ai_done"] = False
+                st.session_state["race_intro_text"] = ""
+                st.session_state["intro_audio_file"] = ""
+                # Limpiar textos editables y audios previos
+                for k in list(st.session_state.keys()):
+                    if k.startswith("desc_edit_") or k.startswith("event_audio_"):
+                        del st.session_state[k]
+                if events:
+                    st.success(f"✅ Se han extraído **{len(events)} eventos** de la carrera.")
+                else:
+                    st.warning("⚠️ No se encontraron eventos en el archivo.")
+                st.rerun()
+            except Exception as ex:
+                st.error(f"❌ Error al parsear: {ex}")
+
+    # ── Generación intro IA ─────────────────────────────────────────────────
+    if intro_btn and st.session_state.get("race_header"):
+        with st.spinner("🎙️ Generando presentación de la carrera con IA..."):
+            try:
+                header = generate_ai_intro(
+                    st.session_state["race_header"], ollama_url, ollama_model
+                )
+                st.session_state["race_header"] = header
+                st.session_state["race_intro_text"] = header.intro_text or ""
+                st.success("✅ Presentación generada.")
+                st.rerun()
+            except Exception as ex:
+                st.error(f"❌ Error al generar intro: {ex}")
+                import traceback
+                st.code(traceback.format_exc())
+
+    # ── Generar audio de todos los textos ──────────────────────────────────
+    if all_audio_btn and st.session_state.get("race_events"):
+        # Iniciar proceso paso a paso
+        all_events_init = st.session_state["race_events"]
+        intro_text_init = st.session_state.get("race_intro_text") or ""
+        has_intro_init = bool(intro_text_init.strip())
+        # El índice -1 representa la intro, 0..N-1 los eventos
+        start_idx = -1 if has_intro_init else 0
+        st.session_state["all_audio_running"] = True
+        st.session_state["all_audio_stop"] = False
+        st.session_state["all_audio_idx"] = start_idx
+        st.session_state["all_audio_total"] = len(all_events_init) + (1 if has_intro_init else 0)
+        st.session_state["all_audio_done"] = 0
+        st.rerun()
+
+    # ── Proceso paso a paso de generación de audios ─────────────────────────
+    if st.session_state.get("all_audio_running"):
+        all_events_run = st.session_state.get("race_events", [])
+        idx_run = st.session_state.get("all_audio_idx", 0)
+        total_run = st.session_state.get("all_audio_total", 1)
+        done_run = st.session_state.get("all_audio_done", 0)
+
+        # Comprobar si se ha pedido parar
+        if st.session_state.get("all_audio_stop"):
+            st.session_state["all_audio_running"] = False
+            st.session_state["all_audio_stop"] = False
+            st.info(f"⏹️ Generación de audios detenida ({done_run}/{total_run} completados).")
+        else:
+            prog_all = st.progress(done_run / total_run if total_run > 0 else 0)
+            
+            if idx_run == -1:
+                # Generar audio de la intro
+                intro_text_run = st.session_state.get("race_intro_text") or ""
+                fname_intro_run = _audio_filename_for_intro()
+                final_fname_intro = _generate_audio_for_text(intro_text_run, fname_intro_run)
+                if final_fname_intro:
+                    st.session_state["intro_audio_file"] = final_fname_intro
+                st.session_state["all_audio_idx"] = 0
+                st.session_state["all_audio_done"] = done_run + 1
+                st.rerun()
+            elif idx_run < len(all_events_run):
+                # Generar audio de un evento
+                ev_run = all_events_run[idx_run]
+                text_run = st.session_state.get(f"desc_edit_{idx_run}") or ev_run.description or ev_run.summary
+                fname_run = _audio_filename_for_event(ev_run)
+                final_fname_run = _generate_audio_for_text(text_run, fname_run)
+                if final_fname_run:
+                    st.session_state[f"event_audio_{idx_run}"] = final_fname_run
+                st.session_state["all_audio_idx"] = idx_run + 1
+                st.session_state["all_audio_done"] = done_run + 1
+                st.rerun()
+            else:
+                # Proceso completado
+                prog_all.empty()
+                st.success(f"✅ Audios generados: {done_run}/{total_run}")
+                st.session_state["all_audio_running"] = False
+
+    # ── Generación IA ───────────────────────────────────────────────────────
+    if ai_btn and st.session_state.get("race_events"):
+        events_to_describe = st.session_state["race_events"]
+        progress_bar = st.progress(0)
+        status_placeholder = st.empty()
+        total = len(events_to_describe)
+
+        import requests as _req
+        used_descriptions = []
+
+        for i, event in enumerate(events_to_describe):
+            status_placeholder.info(f"🤖 Generando descripción {i+1}/{total}...")
+            progress_bar.progress((i + 1) / total)
+
+            type_hints = {
+                1: "adelantamiento en carrera de Fórmula 1",
+                2: "choque o contacto entre dos pilotos en carrera de Fórmula 1",
+                3: "choque de un piloto contra el muro o barrera en carrera de Fórmula 1"
+            }
+            avoid_hint = ""
+            if used_descriptions:
+                last_few = used_descriptions[-5:]
+                avoid_hint = f" Evita frases similares a: {'; '.join(last_few)}"
+
+            prompt = (
+                f"Eres un comentarista deportivo de Fórmula 1 apasionado y dinámico. "
+                f"Genera UNA SOLA frase corta (máximo 25 palabras) y emocionante describiendo este evento de "
+                f"{type_hints.get(event.event_type, 'carrera')}: '{event.summary}' en la vuelta {event.lap}. "
+                f"La descripción debe ser variada, natural y diferente a las anteriores. "
+                f"Responde SOLO con la frase, sin comillas ni explicaciones adicionales.{avoid_hint}"
+            )
+
+            try:
+                resp = _req.post(
+                    f"{ollama_url}/api/generate",
+                    json={
+                        "model": ollama_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {"temperature": 0.9, "top_p": 0.95, "seed": i * 37 + 13}
+                    },
+                    timeout=30
+                )
+                if resp.status_code == 200:
+                    desc = resp.json().get("response", "").strip().strip('"\'')
+                    event.description = desc
+                    used_descriptions.append(desc)
+                else:
+                    event.description = event.summary
+                    status_placeholder.error(f"❌ Ollama respondió {resp.status_code}: {resp.text[:300]}")
+                    break
+            except Exception as _ex:
+                event.description = event.summary
+                status_placeholder.error(f"❌ Error en evento {i+1}: {_ex}")
+                break
+
+        progress_bar.empty()
+        status_placeholder.success(f"✅ Descripciones generadas para {total} eventos.")
+        st.session_state["race_events"] = events_to_describe
+        st.session_state["race_ai_done"] = True
+        # Inicializar textos editables con las descripciones generadas
+        for i, ev in enumerate(events_to_describe):
+            st.session_state[f"desc_edit_{i}"] = ev.description or ev.summary
+        st.rerun()
+
+    # ── Apartado de cabecera de la carrera ─────────────────────────────────
+    if st.session_state.get("race_header"):
+        hdr: RaceHeader = st.session_state["race_header"]
+        st.divider()
+        st.subheader("🏟️ Información de la carrera")
+        with st.container(border=True):
+            col_a, col_b, col_c, col_d = st.columns([2, 1.5, 1, 1])
+            col_a.metric("Circuito", hdr.track_event)
+            col_b.metric("Longitud", f"{hdr.track_length:.0f} m")
+            col_c.metric("Vueltas", hdr.race_laps)
+            col_d.metric("Pilotos", hdr.num_drivers)
+
+            if hdr.grid_order:
+                st.markdown("**🚦 Orden de salida:**")
+                grid_cols = st.columns(min(4, len(hdr.grid_order)))
+                for idx, driver in enumerate(hdr.grid_order):
+                    grid_cols[idx % len(grid_cols)].markdown(f"**{idx+1}.** {driver}")
+
+            if st.session_state.get("race_intro_text") or hdr.intro_text:
+                st.divider()
+                intro_val = st.session_state.get("race_intro_text") or hdr.intro_text or ""
+                edited_intro = st.text_area(
+                    "🎙️ Presentación de la carrera (editable)",
+                    value=intro_val,
+                    height=100,
+                    key="intro_text_area"
+                )
+                if edited_intro != intro_val:
+                    st.session_state["race_intro_text"] = edited_intro
+                    hdr.intro_text = edited_intro
+                    st.session_state["race_header"] = hdr
+
+                # Botones de audio para la intro
+                intro_audio_file = st.session_state.get("intro_audio_file", "")
+                intro_audio_path = os.path.join(AUDIOS_DIR, intro_audio_file) if intro_audio_file else ""
+                btn_col_intro_gen, btn_col_intro_play = st.columns([1, 3])
+                with btn_col_intro_gen:
+                    if st.button("🔊 Generar audio", key="btn_gen_audio_intro"):
+                        with st.spinner("Generando audio de la intro..."):
+                            fname = _audio_filename_for_intro()
+                            final_fname = _generate_audio_for_text(edited_intro or intro_val, fname)
+                            if final_fname:
+                                st.session_state["intro_audio_file"] = final_fname
+                                # st.success(f"✅ Audio generado en carpeta: {final_fname}")
+                                st.rerun()
+                            else:
+                                st.error("❌ Error al generar audio")
+                with btn_col_intro_play:
+                    if intro_audio_file and os.path.exists(intro_audio_path):
+                        # Mostrar tiempo de generación si existe
+                        gen_time = st.session_state.get("audio_generation_times", {}).get(intro_audio_file)
+                        time_str = f" ({gen_time:.1f}s)" if gen_time else ""
+                        st.caption(f"🎵 `{intro_audio_file}`{time_str}")
+                        # Reproductor directo
+                        st.audio(intro_audio_path, format="audio/wav")
+
+    # ── Tabla de eventos ────────────────────────────────────────────────────
+    if st.session_state.get("race_events"):
+        events: list = st.session_state["race_events"]
+        ai_done: bool = st.session_state.get("race_ai_done", False)
+
+        st.divider()
+        st.subheader("📊 Eventos de la carrera")
+
+        type_labels = {1: "🏎️ Adelantamiento", 2: "💥 Choque entre pilotos", 3: "🧱 Choque contra el muro"}
+
+        # Agrupar eventos por vuelta
+        from collections import defaultdict
+        events_by_lap: dict = defaultdict(list)
+        for ev in events:
+            events_by_lap[ev.lap].append(ev)
+
+        for lap_num in sorted(events_by_lap.keys()):
+            # Ordenar por timestamp dentro de cada vuelta
+            lap_events = sorted(events_by_lap[lap_num], key=lambda e: e.timestamp)
+
+            lap_label = f"Vuelta {lap_num}" if lap_num > 0 else "Vuelta de formación"
+
+            with st.container(border=True):
+                st.markdown(f"**🏁 {lap_label}** &nbsp;·&nbsp; {len(lap_events)} evento(s)")
+
+                # Cabecera de columnas
+                h1, h2, h3, h4 = st.columns([1, 1.2, 2, 3])
+                h1.markdown("**Timestamp**")
+                h2.markdown("**Tipo**")
+                h3.markdown("**Resumen**")
+                h4.markdown("**Descripción IA**")
+                st.divider()
+
+                for ev in lap_events:
+                    # Calcular índice global del evento
+                    ev_idx = events.index(ev)
+                    ts_str = f"{ev.timestamp:.1f}s" if ev.timestamp > 0 else "—"
+                    type_str = type_labels.get(ev.event_type, str(ev.event_type))
+                    default_desc = ev.description if ev.description else ("" if not ai_done else ev.summary)
+                    edit_key = f"desc_edit_{ev_idx}"
+                    # Si hay una descripción nueva pendiente (generada por IA), actualizar antes del widget
+                    pending_key = f"desc_pending_{ev_idx}"
+                    if pending_key in st.session_state:
+                        st.session_state[edit_key] = st.session_state.pop(pending_key)
+                    elif edit_key not in st.session_state:
+                        st.session_state[edit_key] = default_desc
+
+                    c1, c2, c3, c4, c_del = st.columns([1, 1.2, 2, 3, 0.4])
+                    c1.markdown(f"`{ts_str}`")
+                    c2.markdown(type_str)
+                    c3.markdown(ev.summary)
+                    with c_del:
+                        if st.button("🗑️", key=f"btn_del_ev_{ev_idx}", help="Eliminar este evento"):
+                            st.session_state["race_events"].remove(ev)
+                            # Limpiar claves de session_state asociadas
+                            for _k in [edit_key, f"event_audio_{ev_idx}"]:
+                                st.session_state.pop(_k, None)
+                            st.rerun()
+                    with c4:
+                        edited = st.text_area(
+                            "Descripción",
+                            value=st.session_state[edit_key],
+                            height=80,
+                            key=edit_key,
+                            label_visibility="collapsed"
+                        )
+                        if edited != ev.description:
+                            ev.description = edited
+
+                        # Botones de texto y audio para el evento
+                        ev_audio_key = f"event_audio_{ev_idx}"
+                        ev_audio_file = st.session_state.get(ev_audio_key, "")
+                        ev_audio_path = os.path.join(AUDIOS_DIR, ev_audio_file) if ev_audio_file else ""
+                        ab0, ab1, ab2 = st.columns([1.2, 1, 3])
+                        with ab0:
+                            if st.button("✍️ Generar texto", key=f"btn_gen_text_ev_{ev_idx}"):
+                                with st.spinner("Generando texto..."):
+                                    new_desc = _generate_text_for_event(ev, ollama_url, ollama_model, all_events=events)
+                                    if new_desc:
+                                        ev.description = new_desc
+                                        st.session_state[pending_key] = new_desc
+                                        st.rerun()
+                        with ab1:
+                            if st.button("🔊 Generar audio", key=f"btn_gen_audio_ev_{ev_idx}"):
+                                with st.spinner("Generando..."):
+                                    fname_ev = _audio_filename_for_event(ev)
+                                    text_ev = st.session_state.get(edit_key) or ev.summary
+                                    final_fname_ev = _generate_audio_for_text(text_ev, fname_ev)
+                                    if final_fname_ev:
+                                        st.session_state[ev_audio_key] = final_fname_ev
+                                        # st.success(f"✅ Audio generado en carpeta: {final_fname_ev}")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Error")
+                        with ab2:
+                            if ev_audio_file and os.path.exists(ev_audio_path):
+                                # Mostrar tiempo de generación si existe
+                                gen_time = st.session_state.get("audio_generation_times", {}).get(ev_audio_file)
+                                time_str = f" ({gen_time:.1f}s)" if gen_time else ""
+                                st.caption(f"🎵 `{ev_audio_file}`{time_str}")
+                                st.audio(ev_audio_path, format="audio/wav")

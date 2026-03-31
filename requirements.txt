@@ -20,4 +20,4 @@ moviepy>=1.0.3
 
 # Opcional: para mejor rendimiento con GPU NVIDIA
 # nvidia-cuda-runtime-cu12
-scipy>=1.10.0
+scipy>=1.10.0openpyxl
