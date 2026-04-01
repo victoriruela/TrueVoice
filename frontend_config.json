@@ -34,5 +34,7 @@
     "texts_output_folder": "C:\\Users\\the_h\\Desktop\\salida textos",
     "custom_texts_path": "C:\\Users\\the_h\\Desktop\\salida textos",
     "texts_folder_type": "Escoger carpeta local",
-    "last_race_session": "Japon F1 2026_ Suzuka"
+    "last_race_session": "Japon F1 2026_ Suzuka",
+    "ollama_url": "http://localhost:11434",
+    "ollama_model": "llama3.2"
 }

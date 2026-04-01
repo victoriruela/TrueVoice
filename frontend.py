@@ -241,79 +241,21 @@ def render_sidebar(voices_data, models_data):
     # Voces
     st.subheader("🎤 Selección de Voces")
 
-    # Tipo de carpeta
-    folder_options = ["Carpeta por defecto (TrueVoice/voices)", "Escoger carpeta local"]
-
-    def on_folder_type_change():
-        cleanup_temp_api()
-        if "current_generated_audio" in st.session_state:
-            del st.session_state.current_generated_audio
-        if st.session_state.folder_type_selectbox == "Escoger carpeta local":
-            new_path = select_folder_windows("Selecciona la carpeta donde están tus voces (.wav)")
-            if new_path:
-                st.session_state.config["custom_folder_path"] = new_path
-                st.session_state.config["voice_folder_type"] = "Escoger carpeta local"
-                save_config(st.session_state.config)
-            else:
-                # Si cancela, volvemos a la por defecto
-                st.session_state.folder_type_selectbox = "Carpeta por defecto (TrueVoice/voices)"
-                st.session_state.config["voice_folder_type"] = "Carpeta por defecto (TrueVoice/voices)"
-                save_config(st.session_state.config)
-        # Necesitamos rerun global porque la lista de voces cambiará
-        st.cache_data.clear() # Limpiar cache para que se actualice la lista de voces
-        # st.rerun() # Eliminado para evitar error en callback
-
-    def on_output_folder_type_change():
-        cleanup_temp_api()
-        if "current_generated_audio" in st.session_state:
-            del st.session_state.current_generated_audio
-        if st.session_state.output_folder_type_selectbox == "Escoger carpeta local":
-            new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
-            if new_path:
-                st.session_state.config["custom_output_path"] = new_path
-                st.session_state.config["output_folder_type"] = "Escoger carpeta local"
-                save_config(st.session_state.config)
-            else:
-                # Si cancela, volvemos a la por defecto
-                st.session_state.output_folder_type_selectbox = "Carpeta por defecto (api_outputs)"
-                st.session_state.config["output_folder_type"] = "Carpeta por defecto (api_outputs)"
-                save_config(st.session_state.config)
-        else:
-            # Si se cambia a la carpeta por defecto manualmente
-            st.session_state.config["output_folder_type"] = "Carpeta por defecto (api_outputs)"
+    custom_folder_path = st.session_state.config.get("custom_folder_path", "")
+    if custom_folder_path:
+        st.caption(f"📁 Ruta: {custom_folder_path}")
+    
+    # Botón para elegir la carpeta local
+    if st.button("📂 Elegir carpeta", help="Abrir explorador de archivos para elegir otra carpeta", key="btn_choose_voices", use_container_width=True):
+        new_path = select_folder_windows("Selecciona la carpeta donde están tus voces (.wav)")
+        if new_path:
+            st.session_state.config["custom_folder_path"] = new_path
+            st.session_state.config["voice_folder_type"] = "Escoger carpeta local"
             save_config(st.session_state.config)
-        
-        # Forzar que la lista de audios se actualice inmediatamente
-        st.cache_data.clear()
-        # st.rerun() # Eliminado para evitar error en callback
-
-    selected_folder_type = st.selectbox(
-        "Origen de las voces",
-        folder_options,
-        help="Selecciona de dónde cargar las voces",
-        key="folder_type_selectbox",
-        on_change=on_folder_type_change
-    )
-
-    voice_directory = None
-    if selected_folder_type == "Escoger carpeta local":
-        custom_folder_path = st.session_state.config.get("custom_folder_path", "")
-        if custom_folder_path:
-            st.caption(f"📁 Ruta: {custom_folder_path}")
-        
-        # Botón para cambiar la carpeta local en cualquier momento
-        if st.button("📂 Cambiar carpeta", help="Abrir explorador de archivos para elegir otra carpeta", use_container_width=True):
-            new_path = select_folder_windows()
-            if new_path:
-                st.session_state.config["custom_folder_path"] = new_path
-                save_config(st.session_state.config)
-                st.cache_data.clear() # Limpiar cache para que se actualice la lista de voces
-                st.rerun() # Rerun global para que la lista de voces se actualice
-        
-        if custom_folder_path.strip():
-            voice_directory = custom_folder_path
-    else:
-        custom_folder_path = ""
+            st.cache_data.clear() # Limpiar cache para que se actualice la lista de voces
+            st.rerun() # Rerun global para que la lista de voces se actualice
+    
+    voice_directory = custom_folder_path if custom_folder_path.strip() else None
 
     # Obtener voces de la carpeta seleccionada (pasadas por parámetro)
     voice_names = [v["alias"] or v["name"] for v in voices_data]
@@ -335,96 +277,38 @@ def render_sidebar(voices_data, models_data):
             key="selected_voice_sidebar"
         )
 
-    # Modelos (pasados por parámetro)
-    model_options = {m["name"]: m["id"] for m in models_data}
-    model_names = list(model_options.keys())
-
-    saved_model = st.session_state.config.get("selected_model_name")
-    default_model_idx = model_names.index(saved_model) if saved_model in model_names else 0
-
-    st.subheader("🧠 Modelo")
-    selected_model_name = st.selectbox(
-        "Seleccionar modelo",
-        model_names,
-        index=default_model_idx,
-        help="Modelo más grande = mejor calidad pero más lento",
-        key="selected_model_name_sidebar"
-    )
-    selected_model = model_options[selected_model_name]
-
     # Formato de salida
     st.subheader("📁 Salida de Audio")
-    output_folder_options = ["Carpeta por defecto (api_outputs)", "Escoger carpeta local"]
-    selected_output_folder_type = st.selectbox(
-        "Carpeta de salida",
-        output_folder_options,
-        key="output_folder_type_selectbox",
-        on_change=on_output_folder_type_change
-    )
-
-    output_directory = None
-    if selected_output_folder_type == "Escoger carpeta local":
-        custom_output_path = st.session_state.config.get("custom_output_path", "")
-        if custom_output_path:
-            st.caption(f"📁 Ruta: {custom_output_path}")
-        
-        if st.button("📂 Cambiar carpeta de salida", help="Elegir otra carpeta para guardar audios", key="btn_change_out_audio", use_container_width=True):
-            new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
-            if new_path:
-                st.session_state.config["custom_output_path"] = new_path
-                save_config(st.session_state.config)
-                st.cache_data.clear() # Limpiar cache para que se actualice la lista de audios
-                st.rerun() # Rerun global para que el tab de audios se actualice
-        
-        if custom_output_path.strip():
-            output_directory = custom_output_path
-    else:
-        custom_output_path = ""
+    
+    custom_output_path = st.session_state.config.get("custom_output_path", "")
+    if custom_output_path:
+        st.caption(f"📁 Ruta: {custom_output_path}")
+    
+    if st.button("📂 Elegir carpeta", help="Elegir otra carpeta para guardar audios", key="btn_choose_out_audio", use_container_width=True):
+        new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
+        if new_path:
+            st.session_state.config["custom_output_path"] = new_path
+            st.session_state.config["output_folder_type"] = "Escoger carpeta local"
+            save_config(st.session_state.config)
+            st.cache_data.clear() # Limpiar cache para que se actualice la lista de audios
+            st.rerun() # Rerun global para que el tab de audios se actualice
+    
+    output_directory = custom_output_path if custom_output_path.strip() else None
 
     # Formato de salida de texto (Excel)
     st.subheader("📄 Salida de Texto")
     
-    def on_texts_folder_type_change():
-        if st.session_state.texts_folder_type_selectbox == "Escoger carpeta local":
-            new_path = select_folder_windows("Selecciona la carpeta para guardar los archivos Excel")
-            if new_path:
-                st.session_state.config["custom_texts_path"] = new_path
-                st.session_state.config["texts_folder_type"] = "Escoger carpeta local"
-                save_config(st.session_state.config)
-            else:
-                st.session_state.texts_folder_type_selectbox = "Carpeta por defecto (race_sessions/textos)"
-                st.session_state.config["texts_folder_type"] = "Carpeta por defecto (race_sessions/textos)"
-                save_config(st.session_state.config)
-        else:
-            st.session_state.config["texts_folder_type"] = "Carpeta por defecto (race_sessions/textos)"
-            save_config(st.session_state.config)
-        # st.rerun() # Eliminado para evitar error en callback
-
-    texts_folder_options = ["Carpeta por defecto (race_sessions/textos)", "Escoger carpeta local"]
-    saved_texts_folder_type = st.session_state.config.get("texts_folder_type", "Carpeta por defecto (race_sessions/textos)")
+    custom_texts_path = st.session_state.config.get("custom_texts_path", "")
+    if custom_texts_path:
+        st.caption(f"📁 Ruta: {custom_texts_path}")
     
-    # Asegurar que el index coincida
-    default_texts_folder_idx = texts_folder_options.index(saved_texts_folder_type) if saved_texts_folder_type in texts_folder_options else 0
-
-    st.selectbox(
-        "Carpeta de salida Excel",
-        texts_folder_options,
-        index=default_texts_folder_idx,
-        key="texts_folder_type_selectbox",
-        on_change=on_texts_folder_type_change
-    )
-
-    if st.session_state.config.get("texts_folder_type") == "Escoger carpeta local":
-        custom_texts_path = st.session_state.config.get("custom_texts_path", "")
-        if custom_texts_path:
-            st.caption(f"📁 Ruta: {custom_texts_path}")
-        
-        if st.button("📂 Cambiar carpeta de textos", help="Elegir otra carpeta para guardar Excel", key="btn_change_out_texts", use_container_width=True):
-            new_path = select_folder_windows("Selecciona la carpeta para guardar los archivos Excel")
-            if new_path:
-                st.session_state.config["custom_texts_path"] = new_path
-                save_config(st.session_state.config)
-                st.rerun()
+    if st.button("📂 Elegir carpeta", help="Elegir otra carpeta para guardar Excel", key="btn_choose_out_texts", use_container_width=True):
+        new_path = select_folder_windows("Selecciona la carpeta para guardar los archivos Excel")
+        if new_path:
+            st.session_state.config["custom_texts_path"] = new_path
+            st.session_state.config["texts_folder_type"] = "Escoger carpeta local"
+            save_config(st.session_state.config)
+            st.rerun()
 
     st.divider()
     format_options = ["wav", "mp3", "flac", "ogg"]
@@ -468,10 +352,55 @@ def render_sidebar(voices_data, models_data):
         key="disable_prefill_sidebar"
     )
 
+    # Modelos (pasados por parámetro)
+    st.subheader("🧠 Modelo de IA para Audio")
+    model_options = {m["name"]: m["id"] for m in models_data}
+    model_names = list(model_options.keys())
+
+    saved_model = st.session_state.config.get("selected_model_name")
+    default_model_idx = model_names.index(saved_model) if saved_model in model_names else 0
+
+    selected_model_name = st.selectbox(
+        "Seleccionar modelo",
+        model_names,
+        index=default_model_idx,
+        help="Modelo más grande = mejor calidad pero más lento",
+        key="selected_model_name_sidebar"
+    )
+    selected_model = model_options[selected_model_name]
+
+    # Configuración de Ollama para Textos
+    st.subheader("🧠 Modelo de IA para Textos")
+    
+    def on_ollama_url_change():
+        st.session_state.config["ollama_url"] = st.session_state.ollama_url_input
+        save_config(st.session_state.config)
+
+    ollama_url = st.text_input(
+        "URL de Ollama",
+        value=st.session_state.config.get("ollama_url", "http://localhost:11434"),
+        placeholder="http://localhost:11434",
+        key="ollama_url_input",
+        on_change=on_ollama_url_change
+    )
+
+    def on_ollama_model_change():
+        st.session_state.config["ollama_model"] = st.session_state.ollama_model_input
+        save_config(st.session_state.config)
+
+    ollama_model = st.text_input(
+        "Modelo",
+        value=st.session_state.config.get("ollama_model", "llama3.2"),
+        placeholder="llama3.2",
+        key="ollama_model_input",
+        on_change=on_ollama_model_change
+    )
+
     # Info del preset seleccionado
     st.divider()
     st.caption(f"🔊 Voz: **{selected_voice}**")
-    st.caption(f"🧠 Modelo: **{selected_model_name}**")
+    st.caption(f"🧠 Modelo Audio: **{selected_model_name}**")
+    st.caption(f"🧠 Modelo Texto: **{ollama_model}**")
     st.caption(f"📊 CFG: **{cfg_scale}** | DDPM: **{ddpm_steps}**")
 
     # Retornamos los valores actuales para que estén disponibles en el estado global
@@ -482,10 +411,12 @@ def render_sidebar(voices_data, models_data):
     # IMPORTANTE: Para que los valores persistan fuera del fragmento, debemos sincronizarlos
     # pero sin forzar rerun global.
     sidebar_values = {
-        "voice_folder_type": selected_folder_type,
+        "voice_folder_type": "Escoger carpeta local" if custom_folder_path else "Carpeta por defecto (TrueVoice/voices)",
         "custom_folder_path": custom_folder_path,
-        "output_folder_type": selected_output_folder_type,
+        "output_folder_type": "Escoger carpeta local" if custom_output_path else "Carpeta por defecto (api_outputs)",
         "custom_output_path": custom_output_path,
+        "texts_folder_type": "Escoger carpeta local" if custom_texts_path else "Carpeta por defecto (race_sessions/textos)",
+        "custom_texts_path": custom_texts_path,
         "selected_voice": selected_voice,
         "selected_model_name": selected_model_name,
         "selected_model": selected_model,
@@ -494,7 +425,9 @@ def render_sidebar(voices_data, models_data):
         "ddpm_steps": ddpm_steps,
         "disable_prefill": disable_prefill,
         "output_directory": output_directory,
-        "voice_directory": voice_directory
+        "voice_directory": voice_directory,
+        "ollama_url": ollama_url,
+        "ollama_model": ollama_model
     }
 
     # Comprobar si algo ha cambiado para guardar la config
@@ -1073,32 +1006,7 @@ with tab_texts:
     st.caption("Sube un archivo XML de resultados de rFactor2 para extraer y narrar los eventos de la carrera.")
 
     # ── Configuración Ollama ────────────────────────────────────────────────
-    with st.expander("⚙️ Configuración de Ollama", expanded=False):
-        col_url, col_model = st.columns([2, 1])
-        with col_url:
-            def on_ollama_url_change():
-                st.session_state.config["ollama_url"] = st.session_state.ollama_url_input
-                save_config(st.session_state.config)
-
-            ollama_url = st.text_input(
-                "URL de Ollama",
-                value=st.session_state.config.get("ollama_url", "http://localhost:11434"),
-                placeholder="http://localhost:11434",
-                key="ollama_url_input",
-                on_change=on_ollama_url_change
-            )
-        with col_model:
-            def on_ollama_model_change():
-                st.session_state.config["ollama_model"] = st.session_state.ollama_model_input
-                save_config(st.session_state.config)
-
-            ollama_model = st.text_input(
-                "Modelo",
-                value=st.session_state.config.get("ollama_model", "llama3.2"),
-                placeholder="llama3.2",
-                key="ollama_model_input",
-                on_change=on_ollama_model_change
-            )
+    # La configuración de Ollama se ha movido al Sidebar (Configuración)
 
     ollama_url = st.session_state.get("ollama_url_input") or st.session_state.config.get("ollama_url", "http://localhost:11434")
     ollama_model = st.session_state.get("ollama_model_input") or st.session_state.config.get("ollama_model", "llama3.2")
