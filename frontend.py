@@ -166,6 +166,9 @@ if "folder_type_selectbox" not in st.session_state:
 if "output_folder_type_selectbox" not in st.session_state:
     st.session_state.output_folder_type_selectbox = st.session_state.config.get("output_folder_type", "Carpeta por defecto (api_outputs)")
 
+if "texts_folder_type_selectbox" not in st.session_state:
+    st.session_state.texts_folder_type_selectbox = st.session_state.config.get("texts_folder_type", "Carpeta por defecto (race_sessions/textos)")
+
 if "text_input" not in st.session_state:
     st.session_state.text_input = st.session_state.config.get("last_text_input", "")
 
@@ -1132,6 +1135,17 @@ with tab_texts:
         s = re.sub(r'[\s]+', '_', s.strip())
         return s[:max_len]
 
+    def _format_timestamp(seconds: float) -> str:
+        """Convierte segundos flotantes a formato HH:MM:SS."""
+        if seconds < 0:
+            return "00:00:00"
+        
+        hrs = int(seconds // 3600)
+        mins = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        
+        return f"{hrs:02d}:{mins:02d}:{secs:02d}"
+
     def _audio_filename_for_event(ev) -> str:
         lap_str = "formacion" if ev.lap == 0 else str(ev.lap)
         ts_str = f"{ev.timestamp:.0f}"
@@ -1159,18 +1173,33 @@ with tab_texts:
             target_path = os.path.join(AUDIOS_DIR, final_filename)
             counter += 1
 
+        # Obtener valores de la configuración y sidebar
+        # Usamos st.session_state para asegurar que tenemos los valores actuales
+        v_name = st.session_state.get("selected_voice_sidebar", "")
+        m_id = selected_model
+        c_scale = cfg_scale
+        d_steps = ddpm_steps
+        d_prefill = disable_prefill
+        v_dir = voice_directory
+
         payload = {
             "text": text,
-            "voice_name": st.session_state.get("selected_voice_sidebar", ""),
+            "voice_name": v_name,
             "custom_output_name": os.path.splitext(final_filename)[0],
             "output_directory": AUDIOS_DIR,
-            "model": selected_model,
+            "model": m_id,
             "output_format": "wav",
-            "cfg_scale": cfg_scale,
-            "ddpm_steps": ddpm_steps,
-            "disable_prefill": disable_prefill,
+            "cfg_scale": c_scale,
+            "ddpm_steps": d_steps,
+            "disable_prefill": d_prefill,
         }
         
+        # Construir endpoint con voice_directory si existe
+        endpoint = f"{API_URL}/generate"
+        if v_dir:
+            from requests.utils import quote
+            endpoint += f"?voice_directory={quote(v_dir)}"
+
         start_t = _time.time()
         try:
             # Mostrar contador mientras se genera
@@ -1186,7 +1215,7 @@ with tab_texts:
             
             def _make_request():
                 try:
-                    r = _req2.post(f"{API_URL}/generate", json=payload, timeout=300)
+                    r = _req2.post(endpoint, json=payload, timeout=300)
                     response_container.append(r)
                 except Exception as e:
                     exception_container.append(e)
@@ -1196,7 +1225,7 @@ with tab_texts:
             
             while thread.is_alive():
                 current_elapsed = _time.time() - start_t
-                status_placeholder.markdown(f"⏱️ **{current_elapsed:.1f}s**")
+                status_placeholder.markdown(f"⏱️ **{current_elapsed:.1f}s** (Generando: {final_filename})")
                 _time.sleep(0.1)
             
             if exception_container:
@@ -1234,8 +1263,12 @@ with tab_texts:
                 st.session_state["audio_generation_times"][final_filename] = elapsed
 
                 return final_filename
-            return ""
-        except Exception:
+            else:
+                if resp:
+                    st.error(f"❌ Error API ({resp.status_code}): {resp.text}")
+                return ""
+        except Exception as e:
+            st.error(f"❌ Error en generación: {e}")
             return ""
 
     def _generate_text_for_event(event, ollama_url: str, ollama_model: str, used_descriptions: list = None,
@@ -1315,7 +1348,8 @@ with tab_texts:
             tipo = f"Tipo {ev.event_type}"
             desc = st.session_state.get(f"desc_edit_{i}", ev.description or "")
             audio_name = event_audios.get(str(i), "")
-            ws.append([lap_label, ev.timestamp, tipo, ev.summary, desc, audio_name])
+            ts_formatted = _format_timestamp(ev.timestamp)
+            ws.append([lap_label, ts_formatted, tipo, ev.summary, desc, audio_name])
         safe_name = ".".join(c if c.isalnum() or c in " _-" else "_" for c in (name or "sesion")).strip()
         excel_path = os.path.join(TEXTS_DIR, f"{safe_name}.xlsx")
         wb.save(excel_path)
@@ -1474,9 +1508,39 @@ with tab_texts:
         key="race_xml_uploader"
     )
 
-    col_parse, col_intro, col_ai, col_all_audio = st.columns([1, 1, 1, 1])
-    with col_parse:
-        parse_btn = st.button("🔍 Parsear archivo", type="primary", disabled=(uploaded_xml is None), key="btn_parse_race")
+    # ── Parseo automático ───────────────────────────────────────────────────
+    if uploaded_xml is not None:
+        # Verificar si es un archivo nuevo comparando nombre y tamaño
+        current_file_id = f"{uploaded_xml.name}_{uploaded_xml.size}"
+        if st.session_state.get("last_uploaded_xml_id") != current_file_id:
+            with st.spinner("Parseando archivo..."):
+                try:
+                    xml_content = uploaded_xml.read().decode("utf-8", errors="replace")
+                    from race_parser import parse_race_file, parse_race_header
+                    header = parse_race_header(xml_content)
+                    events = parse_race_file(xml_content)
+                    st.session_state["race_header"] = header
+                    st.session_state["race_events"] = events
+                    st.session_state["race_ai_done"] = False
+                    st.session_state["race_intro_text"] = ""
+                    st.session_state["intro_audio_file"] = ""
+                    st.session_state["last_uploaded_xml_id"] = current_file_id
+                    
+                    # Limpiar textos editables y audios previos
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("desc_edit_") or k.startswith("event_audio_"):
+                            del st.session_state[k]
+                    
+                    if events:
+                        st.success(f"✅ Se han extraído **{len(events)} eventos** de la carrera.")
+                    else:
+                        st.warning("⚠️ No se encontraron eventos en el archivo.")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"❌ Error al parsear: {ex}")
+                    st.session_state["last_uploaded_xml_id"] = current_file_id # Evitar bucle en error
+
+    col_intro, col_ai, col_all_audio = st.columns([1, 1, 1])
     with col_intro:
         intro_btn = st.button(
             "🎙️ Generar intro con IA",
@@ -1499,34 +1563,11 @@ with tab_texts:
             key="btn_all_audio_race"
         )
 
-    # ── Parseo ──────────────────────────────────────────────────────────────
-    if parse_btn and uploaded_xml is not None:
-        with st.spinner("Parseando archivo..."):
-            try:
-                xml_content = uploaded_xml.read().decode("utf-8", errors="replace")
-                header = parse_race_header(xml_content)
-                events = parse_race_file(xml_content)
-                st.session_state["race_header"] = header
-                st.session_state["race_events"] = events
-                st.session_state["race_ai_done"] = False
-                st.session_state["race_intro_text"] = ""
-                st.session_state["intro_audio_file"] = ""
-                # Limpiar textos editables y audios previos
-                for k in list(st.session_state.keys()):
-                    if k.startswith("desc_edit_") or k.startswith("event_audio_"):
-                        del st.session_state[k]
-                if events:
-                    st.success(f"✅ Se han extraído **{len(events)} eventos** de la carrera.")
-                else:
-                    st.warning("⚠️ No se encontraron eventos en el archivo.")
-                st.rerun()
-            except Exception as ex:
-                st.error(f"❌ Error al parsear: {ex}")
-
     # ── Generación intro IA ─────────────────────────────────────────────────
     if intro_btn and st.session_state.get("race_header"):
         with st.spinner("🎙️ Generando presentación de la carrera con IA..."):
             try:
+                from race_parser import generate_ai_intro
                 header = generate_ai_intro(
                     st.session_state["race_header"], ollama_url, ollama_model
                 )
@@ -1753,7 +1794,7 @@ with tab_texts:
                 for ev in lap_events:
                     # Calcular índice global del evento
                     ev_idx = events.index(ev)
-                    ts_str = f"{ev.timestamp:.1f}s" if ev.timestamp > 0 else "—"
+                    ts_str = _format_timestamp(ev.timestamp)
                     type_str = type_labels.get(ev.event_type, str(ev.event_type))
                     default_desc = ev.description if ev.description else ("" if not ai_done else ev.summary)
                     edit_key = f"desc_edit_{ev_idx}"

@@ -26,7 +26,7 @@ class RaceHeader:
 class RaceEvent:
     lap: int
     timestamp: float
-    event_type: int          # 1=adelantamiento, 2=choque piloto, 3=choque muro
+    event_type: int          # 1=adelantamiento, 2=choque piloto, 3=choque muro, 4=penalización, 5=pit stop
     summary: str             # Resumen genérico
     description: str = ""    # Descripción amigable (rellenada por IA)
 
@@ -103,12 +103,36 @@ def _parse_stream_incidents(xml_content: str) -> List[RaceEvent]:
                 summary=f"{driver_a} choca con {driver_b}"
             ))
 
+    # Patrón para Penalty
+    penalty_pattern = re.compile(
+        r'<Penalty et="([^"]+)">([^<]+)</Penalty>'
+    )
+
+    for m in penalty_pattern.finditer(stream_text):
+        et = float(m.group(1))
+        text = m.group(2).strip()
+        
+        # Filtrar solo Stop/Go y Drive Thru
+        if "Stop/Go" in text or "Drive Thru" in text:
+            # Extraer piloto: "Nombre received ..."
+            pilot_match = re.match(r'(.+?) received', text)
+            driver = pilot_match.group(1).strip() if pilot_match else "Piloto desconocido"
+            
+            type_str = "STOP and GO" if "Stop/Go" in text else "Drive Through"
+            events.append(RaceEvent(
+                lap=0,
+                timestamp=et,
+                event_type=4,
+                summary=f"Penalización {type_str} para {driver}"
+            ))
+
     return events
 
 
 def _parse_lap_positions(xml_content: str) -> Dict[str, Dict[int, int]]:
     """
-    Extrae posiciones por vuelta de cada piloto desde la sección <Driver>.
+    Extrae posiciones por vuelta de cada piloto desde la sección <Driver>,
+    incluyendo la posición de salida (GridPos) como vuelta 0.
     Devuelve dict: {driver_name: {lap_num: position}}
     """
     positions: Dict[str, Dict[int, int]] = {}
@@ -116,6 +140,7 @@ def _parse_lap_positions(xml_content: str) -> Dict[str, Dict[int, int]]:
     # Extraer todos los bloques <Driver>
     driver_pattern = re.compile(r'<Driver>(.*?)</Driver>', re.DOTALL)
     name_pattern = re.compile(r'<Name>([^<]+)</Name>')
+    grid_pos_pattern = re.compile(r'<GridPos>(\d+)</GridPos>')
     lap_pattern = re.compile(r'<Lap num="(\d+)" p="(\d+)"')
 
     for driver_match in driver_pattern.finditer(xml_content):
@@ -125,6 +150,12 @@ def _parse_lap_positions(xml_content: str) -> Dict[str, Dict[int, int]]:
             continue
         driver_name = name_m.group(1).strip()
         lap_positions: Dict[int, int] = {}
+        
+        # Posición de salida como vuelta 0
+        grid_m = grid_pos_pattern.search(driver_block)
+        if grid_m:
+            lap_positions[0] = int(grid_m.group(1))
+
         for lap_m in lap_pattern.finditer(driver_block):
             lap_num = int(lap_m.group(1))
             pos = int(lap_m.group(2))
@@ -142,8 +173,8 @@ def _infer_overtakes(
     """
     Infiere adelantamientos comparando posiciones entre vueltas consecutivas.
     Si el piloto A estaba en posición X y el piloto B en X-1 (B delante de A),
-    y en la vuelta siguiente A está en X-1 y B en X, entonces A adelantó a B.
-    lap_et_map: {lap_num: et_fin_vuelta} para asignar timestamp al adelantamiento.
+    # y en la vuelta siguiente A está en X-1 y B en X, entonces A adelantó a B.
+    # lap_et_map: {lap_num: et_inicio_vuelta} para asignar timestamp al adelantamiento.
     """
     events: List[RaceEvent] = []
 
@@ -162,11 +193,13 @@ def _infer_overtakes(
         lap_curr = sorted_laps[i]
         lap_next = sorted_laps[i + 1]
 
-        # El timestamp del adelantamiento es el et de FIN de lap_curr,
-        # que ahora es lap_et_map[lap_curr] (= et cuando el líder termina lap_curr)
+        # El timestamp del adelantamiento es el et de INICIO de la vuelta donde ocurre.
+        # El usuario dice: "La vuelta 1 empieza en el et con num=1"
+        # Así que el adelantamiento detectado al pasar de lap_curr a lap_next (lap_next)
+        # tiene el timestamp lap_et_map[lap_next].
         ts = 0.0
         if lap_et_map:
-            ts = lap_et_map.get(lap_curr, 0.0)
+            ts = lap_et_map.get(lap_next, 0.0)
 
         # Construir mapa posición->piloto para cada vuelta
         pos_to_driver_curr: Dict[int, str] = {}
@@ -203,7 +236,7 @@ def _infer_overtakes(
                 if pos_b_curr < pos_a_curr and pos_a_next < pos_b_next:
                     seen_pairs.add(pair)
                     events.append(RaceEvent(
-                        lap=lap_curr,
+                        lap=lap_next,
                         timestamp=ts,
                         event_type=1,
                         summary=f"{driver_a} adelanta a {driver_b}"
@@ -212,7 +245,7 @@ def _infer_overtakes(
                 elif pos_a_curr < pos_b_curr and pos_b_next < pos_a_next:
                     seen_pairs.add(pair)
                     events.append(RaceEvent(
-                        lap=lap_curr,
+                        lap=lap_next,
                         timestamp=ts,
                         event_type=1,
                         summary=f"{driver_b} adelanta a {driver_a}"
@@ -240,31 +273,33 @@ def _assign_laps_to_incidents_with_et(
     lap_start_map: Dict[int, float]
 ) -> List[RaceEvent]:
     """
-    Asigna vuelta a incidentes usando el mapa {lap_num: et_fin_vuelta}.
-    El et de <Lap num="N" p="1"> es cuando el líder termina la vuelta N.
-    Vuelta N: lap_start_map[N] <= et < lap_start_map[N+1]
-    Eventos con timestamp < lap_start_map[1] -> vuelta de formación (lap=0).
+    Asigna vuelta a incidentes usando el mapa {lap_num: et_inicio_vuelta}.
+    La vuelta N empieza en lap_start_map[N].
+    Eventos con timestamp < lap_start_map[1] -> vuelta 0.
     """
     if not lap_start_map:
         for ev in incidents:
             ev.lap = 1
         return incidents
 
-    # Ordenar vueltas por número de vuelta
+    # Ordenar vueltas por número de vuelta para búsqueda binaria simple
+    # lap_start_map = {1: 234.69, 2: 341.7, ...}
     sorted_laps = sorted(lap_start_map.items(), key=lambda x: x[0])
-    lap1_et = lap_start_map.get(1, 0.0)
 
     for ev in incidents:
-        if ev.timestamp < lap1_et:
+        # Si es antes de que empiece la vuelta 1, es vuelta 0
+        if ev.timestamp < sorted_laps[0][1]:
             ev.lap = 0
             continue
-        # Buscar la vuelta N tal que lap_start_map[N] <= et < lap_start_map[N+1]
-        assigned_lap = sorted_laps[-1][0]
-        for i, (lap_num, et_fin) in enumerate(sorted_laps):
-            if ev.timestamp < et_fin:
-                # El evento ocurrió antes de que termine esta vuelta
-                # Si es la primera vuelta en el mapa, asignar vuelta de formación
-                assigned_lap = sorted_laps[i - 1][0] if i > 0 else 0
+        
+        assigned_lap = sorted_laps[0][0]
+        # Recorrer para encontrar el rango [lap_num_i, lap_num_i+1]
+        for i in range(len(sorted_laps)):
+            lap_num, et_start = sorted_laps[i]
+            if ev.timestamp >= et_start:
+                assigned_lap = lap_num
+            else:
+                # El evento es anterior a esta vuelta, así que pertenece a la anterior (ya asignada)
                 break
         ev.lap = assigned_lap
 
@@ -322,49 +357,94 @@ def parse_race_file(xml_content: str) -> List[RaceEvent]:
     Función principal. Parsea el contenido XML y devuelve lista de RaceEvent
     ordenados por vuelta y tipo de evento.
     """
-    # 1. Extraer incidentes del Stream
+    # 1. Extraer incidentes y penalizaciones del Stream
     incidents = _parse_stream_incidents(xml_content)
 
-    # 2. Extraer posiciones por vuelta
+    # 2. Extraer posiciones por vuelta y paradas en boxes
     positions = _parse_lap_positions(xml_content)
+    pit_stops: List[RaceEvent] = []
 
-    # 3. Construir mapa {lap_num: et_inicio_vuelta} usando el et del piloto en p=1 en cada vuelta
-    # El et de <Lap num="N" p="1"> es el timestamp en que el líder TERMINA la vuelta N,
-    # es decir, el INICIO de la vuelta N+1. Por tanto:
-    #   inicio_vuelta_1 = et de <Lap num="1" p="1">  (el líder cruza la línea de salida/meta)
-    #   inicio_vuelta_N = et de <Lap num="N-1" p="1"> para N > 1
-    # Primero recogemos el et de cada vuelta del líder (p=1)
-    lap_end_map: Dict[int, float] = {}  # {lap_num: et_fin_vuelta (= inicio siguiente)}
+    # 3. Construir mapa {lap_num: et_inicio_vuelta} siguiendo la cadena de líderes
+    # Según el usuario:
+    # La vuelta 1 empieza en el "et" con num="1"
+    # La vuelta 2 empieza en el "et" con num="2"
+    # etc.
+    # El líder para la vuelta 1 es GridPos=1
+    # El líder para la vuelta N (N>1) es el P1 al final de la vuelta N-1
+    lap_start_map: Dict[int, float] = {}  # {lap_num: et_inicio_vuelta}
+    
+    # Primero mapear GridPos=1 y posiciones P1 por vuelta
+    grid_pos_1_driver = None
+    lap_p1_drivers: Dict[int, str] = {}
+    driver_laps_et: Dict[str, Dict[int, float]] = {}
+
     driver_pattern = re.compile(r'<Driver>(.*?)</Driver>', re.DOTALL)
+    name_pattern = re.compile(r'<Name>([^<]+)</Name>')
+    grid_pos_pattern = re.compile(r'<GridPos>(\d+)</GridPos>')
     lap_full_pattern = re.compile(r'<Lap num="(\d+)" p="(\d+)" et="([^"]+)"')
+    pit_pattern = re.compile(r'pit="1"')
 
     for driver_match in driver_pattern.finditer(xml_content):
         driver_block = driver_match.group(1)
+        name_m = name_pattern.search(driver_block)
+        if not name_m: continue
+        d_name = name_m.group(1).strip()
+        
+        # GridPos
+        grid_m = grid_pos_pattern.search(driver_block)
+        if grid_m and int(grid_m.group(1)) == 1:
+            grid_pos_1_driver = d_name
+        
+        # Laps
+        d_et_map = {}
         for lap_m in lap_full_pattern.finditer(driver_block):
-            lap_num = int(lap_m.group(1))
-            pos = int(lap_m.group(2))
-            et = float(lap_m.group(3))
-            if pos == 1:
-                lap_end_map[lap_num] = et
+            ln = int(lap_m.group(1))
+            lp = int(lap_m.group(2))
+            let = float(lap_m.group(3))
+            d_et_map[ln] = let
+            if lp == 1:
+                lap_p1_drivers[ln] = d_name
+            
+            # Detectar parada en boxes
+            if pit_pattern.search(lap_m.group(0)):
+                pit_stops.append(RaceEvent(
+                    lap=ln,
+                    timestamp=let,
+                    event_type=5,
+                    summary=f"{d_name} ha realizado una parada en boxes"
+                ))
+        driver_laps_et[d_name] = d_et_map
 
-    # lap_start_map: inicio de vuelta N
-    # El et de <Lap num="N" p="1"> es cuando el líder TERMINA la vuelta N.
-    # Por tanto, la vuelta N empieza en lap_end_map[N] (cuando el líder termina la vuelta N).
-    # Todo lo anterior a lap_end_map[1] es "Vuelta de formación" (lap=0).
-    # Vuelta N: lap_end_map[N] <= et < lap_end_map[N+1]
-    lap_start_map: Dict[int, float] = {}
-    if lap_end_map:
-        for lap_num, et_fin in lap_end_map.items():
-            lap_start_map[lap_num] = et_fin
+    # Construir lap_start_map siguiendo la cadena
+    # Inicio vuelta 1: et de lap 1 del piloto que salió en P1 (GridPos 1)
+    if grid_pos_1_driver and 1 in driver_laps_et.get(grid_pos_1_driver, {}):
+        lap_start_map[1] = driver_laps_et[grid_pos_1_driver][1]
+    
+    # Inicio vuelta N (N > 1): et de lap N del piloto que era P1 al final de la vuelta N-1
+    max_lap = 0
+    if lap_p1_drivers:
+        max_lap = max(lap_p1_drivers.keys())
+    
+    for ln in range(2, max_lap + 1):
+        prev_leader = lap_p1_drivers.get(ln - 1)
+        if prev_leader and ln in driver_laps_et.get(prev_leader, {}):
+            lap_start_map[ln] = driver_laps_et[prev_leader][ln]
+        else:
+            # Fallback al líder actual de esa vuelta
+            curr_leader = lap_p1_drivers.get(ln)
+            if curr_leader and ln in driver_laps_et.get(curr_leader, {}):
+                lap_start_map[ln] = driver_laps_et[curr_leader][ln]
 
     # 4. Asignar vueltas a incidentes usando et de inicio de cada vuelta
+    # Todo lo anterior a lap_start_map[1] se ignora o es previo a la carrera.
     incidents = _assign_laps_to_incidents_with_et(incidents, lap_start_map)
 
-    # 5. Inferir adelantamientos (pasamos el mapa et para asignar timestamps)
+    # 5. Inferir adelantamientos
+    # Pasamos lap_start_map para que los adelantamientos en la vuelta N tengan el timestamp de inicio de esa vuelta.
     overtakes = _infer_overtakes(positions, lap_start_map)
 
     # 6. Combinar todos los eventos
-    all_events = incidents + overtakes
+    all_events = incidents + overtakes + pit_stops
 
     # 7. Ordenar por vuelta y tipo de evento
     all_events.sort(key=lambda e: (e.lap, e.event_type, e.timestamp))
@@ -483,7 +563,9 @@ def generate_ai_descriptions(events: List[RaceEvent], ollama_url: str, ollama_mo
         type_hints = {
             1: "adelantamiento en carrera de Fórmula 1",
             2: "choque o contacto entre dos pilotos en carrera de Fórmula 1",
-            3: "choque de un piloto contra el muro o barrera en carrera de Fórmula 1"
+            3: "choque de un piloto contra el muro o barrera en carrera de Fórmula 1",
+            4: "penalización (STOP and GO o Drive Through) impuesta a un piloto",
+            5: "parada en boxes (pit stop) de un piloto"
         }
 
         avoid_hint = ""
