@@ -1148,7 +1148,9 @@ with tab_texts:
 
     def _audio_filename_for_event(ev) -> str:
         lap_str = "formacion" if ev.lap == 0 else str(ev.lap)
-        ts_str = f"{ev.timestamp:.0f}"
+        # Formato HH-MM-SS para el nombre de archivo (los ':' no son válidos en Windows)
+        ts_raw = _format_timestamp(ev.timestamp)
+        ts_str = ts_raw.replace(":", "-")
         summary_str = _sanitize_filename(ev.summary, 40)
         return f"{lap_str}_{ts_str}_{summary_str}.wav"
 
@@ -1654,7 +1656,9 @@ with tab_texts:
             type_hints = {
                 1: "adelantamiento en carrera de Fórmula 1",
                 2: "choque o contacto entre dos pilotos en carrera de Fórmula 1",
-                3: "choque de un piloto contra el muro o barrera en carrera de Fórmula 1"
+                3: "choque de un piloto contra el muro o barrera en carrera de Fórmula 1",
+                4: "penalización recibida o cumplida por un piloto",
+                5: "entrada de un piloto al pit lane para una parada en boxes"
             }
             avoid_hint = ""
             if used_descriptions:
@@ -1766,7 +1770,13 @@ with tab_texts:
         st.divider()
         st.subheader("📊 Eventos de la carrera")
 
-        type_labels = {1: "🏎️ Adelantamiento", 2: "💥 Choque entre pilotos", 3: "🧱 Choque contra el muro"}
+        type_labels = {
+            1: "🏎️ Adelantamiento",
+            2: "💥 Choque entre pilotos",
+            3: "🧱 Choque contra el muro",
+            4: "⚖️ Penalización",
+            5: "🏁 Entrada a boxes"
+        }
 
         # Agrupar eventos por vuelta
         from collections import defaultdict

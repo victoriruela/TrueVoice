@@ -26,7 +26,7 @@ class RaceHeader:
 class RaceEvent:
     lap: int
     timestamp: float
-    event_type: int          # 1=adelantamiento, 2=choque piloto, 3=choque muro, 4=penalización, 5=pit stop
+    event_type: int          # 1=adelantamiento, 2=choque piloto, 3=choque muro, 4=penalización, 5=entrada a boxes
     summary: str             # Resumen genérico
     description: str = ""    # Descripción amigable (rellenada por IA)
 
@@ -114,17 +114,23 @@ def _parse_stream_incidents(xml_content: str) -> List[RaceEvent]:
         
         # Filtrar solo Stop/Go y Drive Thru
         if "Stop/Go" in text or "Drive Thru" in text:
-            # Extraer piloto: "Nombre received ..."
-            pilot_match = re.match(r'(.+?) received', text)
-            driver = pilot_match.group(1).strip() if pilot_match else "Piloto desconocido"
-            
             type_str = "STOP and GO" if "Stop/Go" in text else "Drive Through"
-            events.append(RaceEvent(
-                lap=0,
-                timestamp=et,
-                event_type=4,
-                summary=f"Penalización {type_str} para {driver}"
-            ))
+            
+            # Caso 1: Recibida ("Nombre received ...")
+            if "received" in text:
+                pilot_match = re.match(r'(.+?) received', text)
+                driver = pilot_match.group(1).strip() if pilot_match else "Piloto desconocido"
+                summary = f"{type_str} recibida para {driver}"
+                events.append(RaceEvent(
+                    lap=0,
+                    timestamp=et,
+                    event_type=4,
+                    summary=summary
+                ))
+            
+            # Caso 2: Servida ("Nombre served ...") - ELIMINADO SEGÚN REQUERIMIENTO
+            # elif "served" in text:
+            #     ...
 
     return events
 
@@ -381,8 +387,8 @@ def parse_race_file(xml_content: str) -> List[RaceEvent]:
     driver_pattern = re.compile(r'<Driver>(.*?)</Driver>', re.DOTALL)
     name_pattern = re.compile(r'<Name>([^<]+)</Name>')
     grid_pos_pattern = re.compile(r'<GridPos>(\d+)</GridPos>')
-    lap_full_pattern = re.compile(r'<Lap num="(\d+)" p="(\d+)" et="([^"]+)"')
-    pit_pattern = re.compile(r'pit="1"')
+    # Patrón más flexible para capturar la línea <Lap> completa y sus atributos
+    lap_tag_pattern = re.compile(r'(<Lap\s+num="(\d+)"\s+p="(\d+)"\s+et="([^"]+)"[^>]*>.*?</Lap>)')
 
     for driver_match in driver_pattern.finditer(xml_content):
         driver_block = driver_match.group(1)
@@ -397,21 +403,41 @@ def parse_race_file(xml_content: str) -> List[RaceEvent]:
         
         # Laps
         d_et_map = {}
-        for lap_m in lap_full_pattern.finditer(driver_block):
-            ln = int(lap_m.group(1))
-            lp = int(lap_m.group(2))
-            let = float(lap_m.group(3))
+        laps_with_pit = []
+        for lap_m in lap_tag_pattern.finditer(driver_block):
+            lap_full_line = lap_m.group(1)
+            ln = int(lap_m.group(2))
+            lp = int(lap_m.group(3))
+            let = float(lap_m.group(4))
+            
             d_et_map[ln] = let
             if lp == 1:
                 lap_p1_drivers[ln] = d_name
             
-            # Detectar parada en boxes
-            if pit_pattern.search(lap_m.group(0)):
+            # Detectar parada en boxes: Buscar la palabra "pit" en toda la etiqueta <Lap>...</Lap>
+            if "pit" in lap_full_line:
+                laps_with_pit.append(ln)
+        
+        # Procesar paradas en boxes con el timestamp de la vuelta siguiente
+        for ln_pit in laps_with_pit:
+            # Para saber a qué vuelta de carrera pertenece este evento, hay que tomar el 
+            # timestamp de este evento como el "et" de la siguiente <Lap> de este piloto.
+            next_lap_m = re.search(f'<Lap num="{ln_pit + 1}"[^>]+et="([^"]+)"', driver_block)
+            if next_lap_m:
+                pit_ts = float(next_lap_m.group(1))
                 pit_stops.append(RaceEvent(
-                    lap=ln,
-                    timestamp=let,
+                    lap=1, # Se reasignará dinámicamente según el pit_ts
+                    timestamp=pit_ts,
                     event_type=5,
-                    summary=f"{d_name} ha realizado una parada en boxes"
+                    summary=f"{d_name} entra en boxes"
+                ))
+            else:
+                # Si no hay vuelta siguiente (pit en última vuelta), usamos el et actual
+                pit_stops.append(RaceEvent(
+                    lap=1, # Se reasignará dinámicamente según el timestamp
+                    timestamp=d_et_map.get(ln_pit, 0.0),
+                    event_type=5,
+                    summary=f"{d_name} entra en boxes"
                 ))
         driver_laps_et[d_name] = d_et_map
 
@@ -435,9 +461,10 @@ def parse_race_file(xml_content: str) -> List[RaceEvent]:
             if curr_leader and ln in driver_laps_et.get(curr_leader, {}):
                 lap_start_map[ln] = driver_laps_et[curr_leader][ln]
 
-    # 4. Asignar vueltas a incidentes usando et de inicio de cada vuelta
+    # 4. Asignar vueltas a incidentes, penalizaciones y cambios de neumáticos usando et de inicio de cada vuelta
     # Todo lo anterior a lap_start_map[1] se ignora o es previo a la carrera.
     incidents = _assign_laps_to_incidents_with_et(incidents, lap_start_map)
+    pit_stops = _assign_laps_to_incidents_with_et(pit_stops, lap_start_map)
 
     # 5. Inferir adelantamientos
     # Pasamos lap_start_map para que los adelantamientos en la vuelta N tengan el timestamp de inicio de esa vuelta.
@@ -565,7 +592,7 @@ def generate_ai_descriptions(events: List[RaceEvent], ollama_url: str, ollama_mo
             2: "choque o contacto entre dos pilotos en carrera de Fórmula 1",
             3: "choque de un piloto contra el muro o barrera en carrera de Fórmula 1",
             4: "penalización (STOP and GO o Drive Through) impuesta a un piloto",
-            5: "parada en boxes (pit stop) de un piloto"
+            5: "entrada a boxes de un piloto"
         }
 
         avoid_hint = ""
