@@ -36,5 +36,5 @@
     "texts_folder_type": "Escoger carpeta local",
     "last_race_session": "Japon F1 2026_ Suzuka",
     "ollama_url": "http://localhost:11434",
-    "ollama_model": "llama3.2"
+    "ollama_model": "gemini-3-flash-preview"
 }
