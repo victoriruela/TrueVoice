@@ -553,6 +553,7 @@ def generate_ai_intro(header: RaceHeader, ollama_url: str, ollama_model: str) ->
         f"Narra la parrilla de salida empezando por el primero. "
         f"Para los 3 primeros pilotos ({top3_str}), haz una apreciación graciosa y positiva (en tono de broma amigable) sobre cada uno. "
         f"Para el resto de pilotos, menciona únicamente su posición de salida. "
+        f"IMPORTANTE: Todos los números deben escribirse con palabras (ej. 'uno' en lugar de '1'). NO uses dígitos numéricos. "
         f"Responde SOLO con el texto de presentación, sin títulos ni explicaciones adicionales."
     )
 
@@ -617,6 +618,7 @@ def generate_ai_descriptions(events: List[RaceEvent], ollama_url: str, ollama_mo
             f"Genera UNA SOLA frase corta (máximo 25 palabras) y emocionante describiendo este evento de {type_hints.get(event.event_type, 'carrera')}: "
             f"'{event.summary}' en la vuelta {event.lap}. "
             f"La descripción debe ser variada, natural y diferente a las anteriores.{overtake_hint} "
+            f"IMPORTANTE: Todos los números deben escribirse con palabras (ej. 'uno' en lugar de '1'). NO uses dígitos numéricos. "
             f"Responde SOLO con la frase, sin comillas ni explicaciones adicionales.{avoid_hint}"
         )
 

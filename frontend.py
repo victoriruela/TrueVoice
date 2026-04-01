@@ -1304,6 +1304,7 @@ with tab_texts:
             f"Genera UNA SOLA frase corta (máximo 25 palabras) y emocionante describiendo este evento de "
             f"{type_hints.get(event.event_type, 'carrera')}: '{event.summary}' en la vuelta {event.lap}. "
             f"La descripción debe ser variada, natural y diferente a las anteriores.{overtake_hint} "
+            f"IMPORTANTE: Todos los números deben escribirse con palabras (ej. 'uno' en lugar de '1'). NO uses dígitos numéricos. "
             f"Responde SOLO con la frase, sin comillas ni explicaciones adicionales.{avoid_hint}"
         )
         try:
