@@ -30,11 +30,13 @@ type RaceEvent struct {
 }
 
 type RaceSession struct {
-	IntroText   string            `json:"intro_text"`
-	IntroAudio  string            `json:"intro_audio"`
-	Header      RaceHeader        `json:"header"`
-	Events      []RaceEvent       `json:"events"`
-	EventAudios map[string]string `json:"event_audios"`
+	IntroText            string            `json:"intro_text"`
+	IntroAudio           string            `json:"intro_audio"`
+	Header               RaceHeader        `json:"header"`
+	Events               []RaceEvent       `json:"events"`
+	EventAudios          map[string]string `json:"event_audios"`
+	HiddenEventIndices   []int             `json:"hidden_event_indices,omitempty"`
+	SelectedEventIndices []int             `json:"selected_event_indices,omitempty"`
 }
 
 // ── Regexes ────────────────────────────────────────────────────────

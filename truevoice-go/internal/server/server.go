@@ -74,6 +74,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/audio/{audioID}", s.gen.AudioHandler)
 	r.Get("/progress/{progressID}", s.gen.ProgressHandler)
 	r.Post("/cancel/{progressID}", s.gen.CancelHandler)
+	r.Post("/cancel_all", s.gen.CancelAllHandler)
 	r.Post("/confirm_save", s.gen.ConfirmSaveHandler)
 
 	// Outputs

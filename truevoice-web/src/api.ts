@@ -79,6 +79,7 @@ export const getProgress = (id: string) =>
   api.get<ProgressInfo>(`/progress/${id}`);
 
 export const cancelGeneration = (id: string) => api.post(`/cancel/${id}`);
+export const cancelAllGenerations = () => api.post<{ cancelled: number }>("/cancel_all");
 
 export const confirmSave = (audioId: string, outputDirectory?: string) =>
   api.post("/confirm_save", { audio_id: audioId, output_directory: outputDirectory });
@@ -174,6 +175,8 @@ export interface RaceSession {
   header: RaceHeaderData;
   events: RaceEventData[];
   event_audios: Record<string, string>;
+  hidden_event_indices?: number[];
+  selected_event_indices?: number[];
 }
 export const raceListSessions = () =>
   api.get<{ name: string; filename: string; size: number; modified: number }[]>(

@@ -191,10 +191,13 @@ Devuelve `GenerateResponse {success, message, audio_id, filename, is_temp}`.
 Descarga el archivo de audio generado por su ID. Busca en `temp_outputs/` y `api_outputs/`.
 
 #### `GET /progress/{progress_id}`
-Consulta el progreso de una generación activa. Devuelve `{total, current, status, start_time, last_update}`.
+Consulta el progreso de una generación activa. Devuelve `{total, current, status, error?, start_time, last_update}`.
 
 #### `POST /cancel/{progress_id}`
 Cancela una generación en curso enviando SIGTERM al subprocess activo.
+
+#### `POST /cancel_all`
+Cancela todas las generaciones en curso. Devuelve `{cancelled}` con el número de procesos cancelados.
 
 #### `POST /confirm_save`
 Mueve un archivo de `temp_outputs/` a `api_outputs/` (o a `output_directory` si se especifica).
@@ -279,6 +282,8 @@ Parsea archivos XML de resultados de carrera rFactor2 y extrae tres tipos de eve
 
 - `RaceHeader`: `track_event`, `track_length` (metros), `race_laps`, `num_drivers`, `grid_order[]`, `intro_text`
 - `RaceEvent`: `lap`, `timestamp`, `event_type`, `summary`, `description` (rellena la IA)
+- `RaceSession`: `intro_text`, `intro_audio`, `header`, `events[]`, `event_audios{}`,
+  `hidden_event_indices[]`, `selected_event_indices[]`
 
 ## Módulo de Narración de Carrera (Frontend)
 
@@ -290,6 +295,13 @@ Parsea archivos XML de resultados de carrera rFactor2 y extrae tres tipos de eve
 4. **Síntesis de audio** → `POST /generate` por texto (intro + cada evento)
 5. **Guardado de sesión** → JSON en `race_sessions/` + Excel (.xlsx) con columnas:
    Vuelta, Timestamp, Tipo, Resumen, Descripción IA, Audio
+6. **Edición de eventos en frontend Expo**:
+  - Generación individual de texto IA por evento
+  - Generación individual de audio por evento
+  - Inserción de eventos intermedios
+  - Ocultar/mostrar eventos
+  - Selección múltiple + borrado masivo
+  - Autosave de estado de ocultos/selección cuando hay sesión activa
 
 ### Configuración persistente (`frontend_config.json`)
 

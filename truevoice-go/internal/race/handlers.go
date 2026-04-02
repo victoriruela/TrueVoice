@@ -244,6 +244,15 @@ func (m *Manager) GetSessionHandler(w http.ResponseWriter, r *http.Request) {
 
 	var session RaceSession
 	json.Unmarshal(data, &session)
+	if session.EventAudios == nil {
+		session.EventAudios = map[string]string{}
+	}
+	if session.HiddenEventIndices == nil {
+		session.HiddenEventIndices = []int{}
+	}
+	if session.SelectedEventIndices == nil {
+		session.SelectedEventIndices = []int{}
+	}
 	writeJSON(w, http.StatusOK, session)
 }
 

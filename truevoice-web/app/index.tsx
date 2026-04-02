@@ -1,10 +1,20 @@
-import React, { useEffect, useCallback } from "react";
+import React, { useEffect, useCallback, useState } from "react";
 import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
 import { useGenerationStore, GenerationTask } from "../src/stores/useGenerationStore";
 import { useVoiceStore } from "../src/stores/useVoiceStore";
 import { getAudioUrl } from "../src/api";
+
+function formatElapsed(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
 
 function AudioPlayer({ audioId, directory }: { audioId: string; directory?: string }) {
   const url = getAudioUrl(audioId, directory);
@@ -19,6 +29,15 @@ function AudioPlayer({ audioId, directory }: { audioId: string; directory?: stri
 function TaskCard({ task }: { task: GenerationTask }) {
   const config = useConfigStore((s) => s.config);
   const { updateTask, generate, save, removeTask } = useGenerationStore();
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (task.status !== "generating") {
+      return;
+    }
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [task.status]);
 
   const onGenerate = useCallback(() => {
     generate(task.id, {
@@ -36,6 +55,11 @@ function TaskCard({ task }: { task: GenerationTask }) {
     task.progress && task.progress.total > 0
       ? Math.round((task.progress.current / task.progress.total) * 100)
       : 0;
+
+  const startMs = task.progress?.start_time
+    ? task.progress.start_time * 1000
+    : task.startedAt || nowMs;
+  const elapsed = Math.max(0, Math.floor((nowMs - startMs) / 1000));
 
   return (
     <View style={shared.card}>
@@ -65,7 +89,7 @@ function TaskCard({ task }: { task: GenerationTask }) {
         <View style={[shared.row, { marginBottom: 8 }]}>
           <ActivityIndicator color={colors.primary} />
           <Text style={{ color: colors.textDim }}>
-            Generando... {pct > 0 ? `${pct}%` : ""}
+            Generando... {pct > 0 ? `${pct}%` : ""} · {formatElapsed(elapsed)}
           </Text>
           {task.progress && (
             <View

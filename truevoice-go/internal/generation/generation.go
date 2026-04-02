@@ -331,6 +331,25 @@ func (m *Manager) CancelHandler(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "No active generation with that ID")
 }
 
+func (m *Manager) CancelAllHandler(w http.ResponseWriter, r *http.Request) {
+	cancelled := 0
+	m.procs.Range(func(key, val any) bool {
+		ap, ok := val.(*activeProcess)
+		if !ok {
+			return true
+		}
+
+		ap.cancel()
+		if id, ok := key.(string); ok {
+			m.setProgress(id, "cancelled", -1)
+		}
+		cancelled++
+		return true
+	})
+
+	writeJSON(w, http.StatusOK, map[string]int{"cancelled": cancelled})
+}
+
 // ── Audio download ─────────────────────────────────────────────────
 
 func (m *Manager) AudioHandler(w http.ResponseWriter, r *http.Request) {

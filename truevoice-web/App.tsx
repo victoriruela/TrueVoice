@@ -6,8 +6,9 @@ import RaceScreen from "./app/race";
 import OutputsScreen from "./app/outputs";
 import VoicesScreen from "./app/voices";
 import SettingsScreen from "./app/settings";
-import { cleanupTemp } from "./src/api";
+import { cancelAllGenerations, cleanupTemp } from "./src/api";
 import { useConfigStore } from "./src/stores/useConfigStore";
+import { useGenerationStore } from "./src/stores/useGenerationStore";
 import { colors } from "./src/theme";
 
 type TabKey = "generate" | "race" | "outputs" | "voices" | "settings";
@@ -38,12 +39,42 @@ function ScreenContent({ tab }: { tab: TabKey }) {
 
 export default function App() {
   const fetchConfig = useConfigStore((s) => s.fetch);
+  const cancelAllInFlight = useGenerationStore((s) => s.cancelAllInFlight);
   const [tab, setTab] = useState<TabKey>("generate");
 
   useEffect(() => {
     fetchConfig();
     cleanupTemp().catch(() => {});
+    // Best-effort cleanup in case browser skipped beforeunload handlers.
+    cancelAllGenerations().catch(() => {});
   }, [fetchConfig]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const stopAll = () => {
+      // Keepalive fetch is more reliable than async XHR during unload.
+      try {
+        fetch(`${window.location.origin}/cancel_all`, {
+          method: "POST",
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        // no-op
+      }
+      cancelAllInFlight().catch(() => {});
+    };
+
+    window.addEventListener("beforeunload", stopAll);
+    window.addEventListener("pagehide", stopAll);
+
+    return () => {
+      window.removeEventListener("beforeunload", stopAll);
+      window.removeEventListener("pagehide", stopAll);
+    };
+  }, [cancelAllInFlight]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>

@@ -3,6 +3,7 @@ import {
   generateAudio,
   getProgress,
   confirmSave,
+  cancelGeneration,
   GenerateRequest,
   GenerateResponse,
   ProgressInfo,
@@ -16,6 +17,8 @@ export interface GenerationTask {
   progress: ProgressInfo | null;
   result: GenerateResponse | null;
   error: string | null;
+  activeAudioId?: string;
+  startedAt?: number;
 }
 
 interface GenerationStore {
@@ -29,6 +32,7 @@ interface GenerationStore {
     overrides: Partial<GenerateRequest>,
   ) => Promise<void>;
   save: (id: number, outputDirectory?: string) => Promise<void>;
+  cancelAllInFlight: () => Promise<void>;
 }
 
 export const useGenerationStore = create<GenerationStore>((set, get) => ({
@@ -64,7 +68,13 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
     if (!task) return;
 
     const audioIdHint = `gen_${id}_${Date.now()}`;
-    get().updateTask(id, { status: "generating", progress: null, error: null });
+    get().updateTask(id, {
+      status: "generating",
+      progress: null,
+      error: null,
+      startedAt: Date.now(),
+      activeAudioId: undefined,
+    });
 
     try {
       const req: GenerateRequest = {
@@ -80,6 +90,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
       }
 
       const progressID = data.audio_id;
+      get().updateTask(id, { activeAudioId: progressID });
       let completed = false;
 
       // Wait for real completion on backend instead of marking done immediately.
@@ -116,6 +127,8 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
         status: "error",
         error: err?.response?.data?.detail || err.message || "Error",
       });
+    } finally {
+      get().updateTask(id, { activeAudioId: undefined });
     }
   },
 
@@ -132,5 +145,26 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
         error: err?.response?.data?.detail || "Save failed",
       });
     }
+  },
+
+  cancelAllInFlight: async () => {
+    const generating = get().tasks.filter((t) => t.status === "generating" && t.activeAudioId);
+    await Promise.all(
+      generating.map(async (task) => {
+        try {
+          await cancelGeneration(task.activeAudioId!);
+        } catch {
+          // Best-effort cancellation on page lifecycle.
+        }
+      }),
+    );
+
+    set((s) => ({
+      tasks: s.tasks.map((t) =>
+        t.status === "generating"
+          ? { ...t, status: "error", error: "Generacion cancelada por recarga", activeAudioId: undefined }
+          : t,
+      ),
+    }));
   },
 }));

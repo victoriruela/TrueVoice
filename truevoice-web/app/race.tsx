@@ -31,6 +31,16 @@ function sanitizeFilename(s: string): string {
   return s.replace(/[^\w\s\-]/g, "").replace(/\s+/g, "_").slice(0, 60);
 }
 
+function formatElapsed(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 export default function RaceScreen() {
   const store = useRaceStore();
   const config = useConfigStore((s) => s.config);
@@ -39,6 +49,11 @@ export default function RaceScreen() {
   const [sessionName, setSessionName] = useState("");
   const [generatingAll, setGeneratingAll] = useState(false);
   const [genProgress, setGenProgress] = useState({ done: 0, total: 0 });
+  const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
+  const [batchElapsedSec, setBatchElapsedSec] = useState(0);
+  const [currentBatchItem, setCurrentBatchItem] = useState("");
+  const [eventAudioDurations, setEventAudioDurations] = useState<Record<number, number>>({});
+  const [showHiddenEvents, setShowHiddenEvents] = useState(false);
   const [generatingIntroAudio, setGeneratingIntroAudio] = useState(false);
   const [generatingEventText, setGeneratingEventText] = useState<Record<number, boolean>>({});
   const [generatingEventAudio, setGeneratingEventAudio] = useState<Record<number, boolean>>({});
@@ -83,14 +98,18 @@ export default function RaceScreen() {
 
   const generateAllAudios = useCallback(async () => {
     setGeneratingAll(true);
+    setBatchStartedAt(Date.now());
+    setCurrentBatchItem("Intro de carrera");
     const total = (store.introText ? 1 : 0) + store.events.length;
     let done = 0;
     setGenProgress({ done: 0, total });
 
     // Intro
     if (store.introText) {
+      const stepStart = Date.now();
       const id = await generateAudioForText(store.introText, "intro_carrera");
       if (id) store.setIntroAudio(id);
+      setEventAudioDurations((s) => ({ ...s, [-1]: Math.floor((Date.now() - stepStart) / 1000) }));
       done++;
       setGenProgress({ done, total });
     }
@@ -98,18 +117,33 @@ export default function RaceScreen() {
     // Events
     for (let i = 0; i < store.events.length; i++) {
       const ev = store.events[i];
+      setCurrentBatchItem(`Evento V${ev.lap} · ${ev.summary.slice(0, 36)}`);
       const desc = ev.description || ev.summary;
       if (!desc) continue;
       const fname = sanitizeFilename(
         `${ev.lap}_${formatTimestamp(ev.timestamp).replace(/:/g, "-")}_${ev.summary.slice(0, 40)}`,
       );
+      const stepStart = Date.now();
       const id = await generateAudioForText(desc, fname);
       if (id) store.setEventAudio(i, id);
+      setEventAudioDurations((s) => ({ ...s, [i]: Math.floor((Date.now() - stepStart) / 1000) }));
       done++;
       setGenProgress({ done, total });
     }
     setGeneratingAll(false);
+    setCurrentBatchItem("");
+    setBatchStartedAt(null);
   }, [store, generateAudioForText]);
+
+  useEffect(() => {
+    if (!generatingAll || !batchStartedAt) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setBatchElapsedSec(Math.max(0, Math.floor((Date.now() - batchStartedAt) / 1000)));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [generatingAll, batchStartedAt]);
 
   const handleSave = useCallback(async () => {
     const name = sessionName.trim() || store.header?.track_event || "sesion";
@@ -272,21 +306,57 @@ export default function RaceScreen() {
       {store.events.length > 0 && (
         <View style={shared.card}>
           <View style={[shared.row, { justifyContent: "space-between", marginBottom: 8 }]}>
-            <Text style={shared.label}>Eventos ({store.events.length})</Text>
+            <Text style={shared.label}>
+              Eventos visibles ({store.events.filter((_, idx) => !store.hiddenEventIndices.has(idx)).length}/{store.events.length})
+            </Text>
             <Pressable style={shared.button} onPress={store.generateDescriptions}>
               <Text style={shared.buttonText}>Generar descripciones IA</Text>
             </Pressable>
           </View>
+          <View style={[shared.row, { flexWrap: "wrap", marginBottom: 10 }]}> 
+            <Pressable style={shared.buttonSecondary} onPress={store.selectAllEvents}>
+              <Text style={[shared.buttonText, { color: colors.text }]}>Seleccionar visibles</Text>
+            </Pressable>
+            <Pressable style={shared.buttonSecondary} onPress={store.clearEventSelection}>
+              <Text style={[shared.buttonText, { color: colors.text }]}>Limpiar seleccion</Text>
+            </Pressable>
+            <Pressable
+              style={[shared.buttonSecondary, { borderColor: colors.error }]}
+              onPress={async () => {
+                if (!store.selectedEventIndices.size) return;
+                if (!window.confirm(`Eliminar ${store.selectedEventIndices.size} eventos seleccionados?`)) return;
+                await store.deleteSelectedEvents();
+              }}
+              disabled={!store.selectedEventIndices.size}
+            >
+              <Text style={[shared.buttonText, { color: colors.error }]}>Borrar seleccionados ({store.selectedEventIndices.size})</Text>
+            </Pressable>
+            <Pressable style={shared.buttonSecondary} onPress={() => setShowHiddenEvents((v) => !v)}>
+              <Text style={[shared.buttonText, { color: colors.text }]}>
+                {showHiddenEvents ? "Ocultar filas ocultas" : `Mostrar ocultos (${store.hiddenEventIndices.size})`}
+              </Text>
+            </Pressable>
+          </View>
           {store.events.map((ev, i) => (
+            (!store.hiddenEventIndices.has(i) || showHiddenEvents) ? (
             <View
               key={i}
               style={{
                 borderBottomWidth: 1,
                 borderBottomColor: colors.border,
                 paddingVertical: 8,
+                opacity: store.hiddenEventIndices.has(i) ? 0.55 : 1,
               }}
             >
               <View style={shared.row}>
+                <Pressable
+                  onPress={() => store.toggleEventSelected(i)}
+                  style={{ marginRight: 6 }}
+                >
+                  <Text style={{ color: colors.text }}>
+                    {store.selectedEventIndices.has(i) ? "☑" : "☐"}
+                  </Text>
+                </Pressable>
                 <Text style={{ color: colors.primary, fontWeight: "600", width: 50 }}>
                   V{ev.lap}
                 </Text>
@@ -296,6 +366,9 @@ export default function RaceScreen() {
                 <Text style={{ color: colors.accent, flex: 1 }}>
                   {EVENT_TYPE_LABELS[ev.event_type] || `Tipo ${ev.event_type}`}
                 </Text>
+                {store.hiddenEventIndices.has(i) && (
+                  <Text style={{ color: colors.textDim, fontSize: 12 }}>[Oculto]</Text>
+                )}
               </View>
               <Text style={{ color: colors.text, marginVertical: 4 }}>{ev.summary}</Text>
               <TextInput
@@ -331,7 +404,32 @@ export default function RaceScreen() {
                 >
                   <Text style={[shared.buttonText, { color: colors.text }]}>Insertar evento debajo</Text>
                 </Pressable>
+                <Pressable
+                  style={shared.buttonSecondary}
+                  onPress={async () => {
+                    await store.toggleEventHidden(i);
+                  }}
+                >
+                  <Text style={[shared.buttonText, { color: colors.text }]}> 
+                    {store.hiddenEventIndices.has(i) ? "Mostrar" : "Ocultar"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[shared.buttonSecondary, { borderColor: colors.error }]}
+                  onPress={async () => {
+                    if (!window.confirm("Eliminar este evento?")) return;
+                    await store.deleteEvent(i);
+                  }}
+                >
+                  <Text style={[shared.buttonText, { color: colors.error }]}>Borrar</Text>
+                </Pressable>
               </View>
+
+              {eventAudioDurations[i] !== undefined && (
+                <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 6 }}>
+                  Ultimo audio generado en {formatElapsed(eventAudioDurations[i])}
+                </Text>
+              )}
 
               {store.eventAudios[String(i)] && (
                 <audio
@@ -341,6 +439,7 @@ export default function RaceScreen() {
                 />
               )}
             </View>
+            ) : null
           ))}
         </View>
       )}
@@ -351,8 +450,13 @@ export default function RaceScreen() {
           {generatingAll ? (
             <View>
               <Text style={{ color: colors.text, marginBottom: 8 }}>
-                Generando audios... {genProgress.done}/{genProgress.total}
+                Generando audios... {genProgress.done}/{genProgress.total} · {formatElapsed(batchElapsedSec)}
               </Text>
+              {currentBatchItem ? (
+                <Text style={{ color: colors.textDim, marginBottom: 8 }}>
+                  En curso: {currentBatchItem}
+                </Text>
+              ) : null}
               <View
                 style={{
                   height: 8,
