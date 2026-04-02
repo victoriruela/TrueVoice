@@ -1,0 +1,33 @@
+{
+    "voice_folder_type": "Escoger carpeta local",
+    "custom_folder_path": "/mnt/c/Users/the_h/Desktop/voices",
+    "output_folder_type": "Escoger carpeta local",
+    "custom_output_path": "/mnt/c/Users/the_h/Desktop/salida audios",
+    "selected_voice": "Lobato_WAV",
+    "selected_model_name": "VibeVoice 1.5B (recomendado)",
+    "output_format": "wav",
+    "cfg_scale": 2.4,
+    "ddpm_steps": 10,
+    "disable_prefill": false,
+    "last_text_input": "Ad\u00e1n fue ",
+    "last_custom_name": "prueba",
+    "selected_model": "microsoft/VibeVoice-1.5b",
+    "output_directory": "/mnt/c/Users/the_h/Desktop/salida audios",
+    "voice_directory": "/mnt/c/Users/the_h/Desktop/voices",
+    "generation_tasks": [
+        {
+            "text": "Carlos Men\u00e9ndez hoy adelant\u00f3 muchas posiciones. \u00a1\u00bfHoy la putilla, debe estar orgullosa?!",
+            "custom_name": "prueba",
+            "id": 0,
+            "status": "idle",
+            "result": null
+        }
+    ],
+    "audio_output_folder": "/app/api_outputs",
+    "texts_output_folder": "/app/race_sessions",
+    "custom_texts_path": "/mnt/c/Users/the_h/Desktop/salida textos",
+    "texts_folder_type": "Escoger carpeta local",
+    "last_race_session": "Japon F1 2026_ Suzuka",
+    "ollama_url": "http://host.docker.internal:11434",
+    "ollama_model": "gemini-3-flash-preview:latest"
+}

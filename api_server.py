@@ -4,6 +4,7 @@ Sirve como capa intermedia entre el frontend (Streamlit) y el backend (vibevoice
 """
 
 import os
+import signal
 import sys
 import uuid
 import subprocess
@@ -11,10 +12,12 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import json
+import time
 
 app = FastAPI(
     title="TrueVoice API",
@@ -32,25 +35,75 @@ app.add_middleware(
 # ── Rutas del proyecto ──────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.resolve()
 VIBEVOICE_REPO = PROJECT_ROOT / "VibeVoice"
-VOICES_DIR = VIBEVOICE_REPO / "demo" / "voices"
+# Directorio por defecto: carpeta voices de TrueVoice
+DEFAULT_VOICES_DIR = PROJECT_ROOT / "voices"
+VIBEVOICE_VOICES_DIR = VIBEVOICE_REPO / "demo" / "voices"
 OUTPUTS_DIR = PROJECT_ROOT / "api_outputs"
+TEMP_DIR = PROJECT_ROOT / "temp_outputs"
 OUTPUTS_DIR.mkdir(exist_ok=True)
+TEMP_DIR.mkdir(exist_ok=True)
+DEFAULT_VOICES_DIR.mkdir(exist_ok=True) # Asegurar que existe
+
+# Variable global para mantener compatibilidad con código antiguo que pueda usarla
+VOICES_DIR = DEFAULT_VOICES_DIR
+
+# ── Almacenamiento de Progreso ──────────────────────────────────────────────
+# Estructura: { "audio_id": { "total": 100, "current": 10, "start_time": float, "last_update": float } }
+PROGRESS_STORE = {}
+ACTIVE_PROCESSES = {}
+
+
+def cancel_active_process(progress_id: str) -> bool:
+    process = ACTIVE_PROCESSES.get(progress_id)
+    if not process:
+        return False
+
+    if process.poll() is not None:
+        ACTIVE_PROCESSES.pop(progress_id, None)
+        return False
+
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            process.wait(timeout=2)
+        return True
+    except Exception as ex:
+        print(f"[API] Error cancelando proceso {progress_id}: {ex}")
+        return False
+    finally:
+        ACTIVE_PROCESSES.pop(progress_id, None)
+        if progress_id in PROGRESS_STORE:
+            PROGRESS_STORE[progress_id]["status"] = "cancelled"
+            PROGRESS_STORE[progress_id]["last_update"] = time.time()
 
 print(f"[API] PROJECT_ROOT: {PROJECT_ROOT}")
-print(f"[API] VOICES_DIR:   {VOICES_DIR}")
+print(f"[API] DEFAULT_VOICES_DIR: {DEFAULT_VOICES_DIR}")
 print(f"[API] OUTPUTS_DIR:  {OUTPUTS_DIR}")
-print(f"[API] VOICES_DIR exists: {VOICES_DIR.exists()}")
 
 
 # ── Modelos Pydantic ────────────────────────────────────────────────────────
 class GenerateRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Texto a convertir en audio")
-    voice_name: str = Field("Alice", description="Nombre de la voz a usar")
+    voice_name: str = Field("Alice", description="Nombre de la voz o ruta completa al archivo .wav")
+    custom_output_name: Optional[str] = Field(None, description="Nombre personalizado para el archivo de salida")
+    output_directory: Optional[str] = Field(None, description="Directorio de salida personalizado")
+    audio_id_hint: Optional[str] = Field(None, description="Sugerencia de ID para rastrear progreso")
     model: str = Field("microsoft/VibeVoice-1.5b", description="Modelo HuggingFace")
     output_format: str = Field("wav", description="Formato de salida: wav, mp3, flac, ogg")
     cfg_scale: float = Field(2.0, ge=0.5, le=5.0, description="CFG scale (0.5-5.0)")
     ddpm_steps: int = Field(30, ge=1, le=200, description="Pasos DDPM (1-200)")
     disable_prefill: bool = Field(False, description="Desactivar clonación de voz")
+
+
+class OutputFileInfo(BaseModel):
+    id: str
+    filename: str
+    path: str
+    size: int
+    created: float
 
 
 class VoiceInfo(BaseModel):
@@ -64,6 +117,12 @@ class GenerateResponse(BaseModel):
     message: str
     audio_id: Optional[str] = None
     filename: Optional[str] = None
+    is_temp: bool = False
+
+
+class SaveRequest(BaseModel):
+    audio_id: str
+    output_directory: Optional[str] = None
 
 
 # ── Utilidades ──────────────────────────────────────────────────────────────
@@ -77,26 +136,46 @@ DEFAULT_VOICES = {
     "Anchen": "zh-Anchen_man_bgm",
     "Bowen": "zh-Bowen_man",
     "Xinran": "zh-Xinran_woman",
-    "Lobato": "es-Lobato_man",
 }
 
 ALIAS_REVERSE = {v: k for k, v in DEFAULT_VOICES.items()}
 
 
-def _resolve_voice(voice_name: str) -> Optional[str]:
-    """Resuelve un nombre de voz al nombre exacto del archivo WAV."""
-    if voice_name in DEFAULT_VOICES:
-        resolved = DEFAULT_VOICES[voice_name]
-        if (VOICES_DIR / f"{resolved}.wav").exists():
-            return resolved
-
-    if (VOICES_DIR / f"{voice_name}.wav").exists():
+def _resolve_voice(voice_name: str, directory: Optional[str] = None) -> Optional[str]:
+    """Resuelve un nombre de voz al nombre exacto del archivo WAV o ruta absoluta."""
+    # Si es una ruta absoluta y existe, la usamos directamente
+    if os.path.isabs(voice_name) and voice_name.lower().endswith(".wav") and os.path.exists(voice_name):
         return voice_name
 
+    # Determinar qué directorio usar
+    target_dir = DEFAULT_VOICES_DIR
+    if directory:
+        custom_dir = Path(directory)
+        if custom_dir.exists() and custom_dir.is_dir():
+            target_dir = custom_dir
+
+    if voice_name in DEFAULT_VOICES:
+        resolved = DEFAULT_VOICES[voice_name]
+        # Primero buscamos en el directorio proporcionado (con el nombre resuelto o el alias)
+        if (target_dir / f"{resolved}.wav").exists():
+            return str(target_dir / f"{resolved}.wav")
+        if (target_dir / f"{voice_name}.wav").exists():
+            return str(target_dir / f"{voice_name}.wav")
+        # Fallback a VibeVoice original para las voces por defecto
+        if (VIBEVOICE_VOICES_DIR / f"{resolved}.wav").exists():
+            return str(VIBEVOICE_VOICES_DIR / f"{resolved}.wav")
+
+    if (target_dir / f"{voice_name}.wav").exists():
+        return str(target_dir / f"{voice_name}.wav")
+
     voice_lower = voice_name.lower()
-    for wav in VOICES_DIR.glob("*.wav"):
-        if voice_lower in wav.stem.lower():
-            return wav.stem
+    for wav in target_dir.glob("*.wav"):
+        if voice_lower == wav.stem.lower(): # Coincidencia exacta primero
+            return str(wav)
+    
+    for wav in target_dir.glob("*.wav"):
+        if voice_lower in wav.stem.lower(): # Coincidencia parcial después
+            return str(wav)
 
     return None
 
@@ -108,40 +187,99 @@ def root():
 
 
 @app.get("/voices", response_model=list[VoiceInfo])
-def list_voices():
-    """Lista todas las voces disponibles."""
+def list_voices(directory: Optional[str] = None):
+    """Lista todas las voces disponibles en el directorio especificado o el predeterminado."""
     voices = []
-    for wav in sorted(VOICES_DIR.glob("*.wav")):
+    target_dir = DEFAULT_VOICES_DIR
+    
+    if directory:
+        custom_dir = Path(directory)
+        if custom_dir.exists() and custom_dir.is_dir():
+            target_dir = custom_dir
+        else:
+            # Si el directorio no existe, devolvemos lista vacía
+            return []
+
+    for wav in sorted(target_dir.glob("*.wav")):
         alias = ALIAS_REVERSE.get(wav.stem)
         voices.append(VoiceInfo(name=wav.stem, filename=wav.name, alias=alias))
+    
     return voices
 
 
 @app.post("/generate", response_model=GenerateResponse)
-def generate_audio(req: GenerateRequest):
+def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
     """Genera audio a partir de texto usando VibeVoice."""
     try:
-        # Valida la voz
-        resolved = _resolve_voice(req.voice_name)
-        if resolved is None:
-            available = [f.stem for f in VOICES_DIR.glob("*.wav")]
-            raise HTTPException(404, f"Voz '{req.voice_name}' no encontrada. Disponibles: {available}")
+        print(f"[API] Solicitud de generación recibida. Voz: {req.voice_name}, Directorio: {voice_directory}")
+        # Valida la voz (pasamos el directorio si existe)
+        resolved_path = _resolve_voice(req.voice_name, voice_directory)
+        if resolved_path is None:
+            raise HTTPException(404, f"Voz '{req.voice_name}' no encontrada en el directorio especificado ({voice_directory or 'default'}).")
 
         # Valida formato
         fmt = req.output_format.lower().lstrip(".")
         if fmt not in ("wav", "mp3", "flac", "ogg"):
             raise HTTPException(400, f"Formato '{fmt}' no soportado. Usa: wav, mp3, flac, ogg")
 
+        # Determinar directorio de salida (ahora siempre es el temporal inicialmente)
+        target_output_dir = TEMP_DIR
+        
+        # Guardar dónde debería ir finalmente para referencia
+        final_target_dir = OUTPUTS_DIR
+        if req.output_directory:
+            custom_out = Path(req.output_directory)
+            if custom_out.exists() and custom_out.is_dir():
+                final_target_dir = custom_out
+            else:
+                try:
+                    custom_out.mkdir(parents=True, exist_ok=True)
+                    final_target_dir = custom_out
+                except Exception as e:
+                    print(f"[API] No se pudo crear el directorio de salida personalizado: {e}")
+
         # Genera un ID único para este audio
-        audio_id = uuid.uuid4().hex[:12]
-        output_file = OUTPUTS_DIR / f"{audio_id}.{fmt}"
+        if req.custom_output_name:
+            # Sanitizar nombre (quitar extensión si la puso)
+            base_name = Path(req.custom_output_name).stem
+            # Lógica de evitar duplicados en el destino final
+            final_name = f"{base_name}.{fmt}"
+            counter = 1
+            while (final_target_dir / final_name).exists():
+                final_name = f"{base_name}_{counter}.{fmt}"
+                counter += 1
+            output_file = target_output_dir / final_name
+            audio_id = Path(final_name).stem # Usamos el nombre base como ID si es personalizado
+        else:
+            # Comportamiento por defecto (UUID)
+            audio_id = uuid.uuid4().hex[:12]
+            output_file = target_output_dir / f"{audio_id}.{fmt}"
+
+        # Si el cliente nos da una sugerencia (hint) para el progreso, la usamos o añadimos a la store
+        progress_id = req.audio_id_hint if req.audio_id_hint else audio_id
+
+        # Si el ID ya existe (por un reintento o coincidencia), limpiar progreso previo
+        if progress_id in PROGRESS_STORE:
+            print(f"[API] Limpiando progreso previo para {progress_id}")
+            del PROGRESS_STORE[progress_id]
+
+        # Inicializar progreso
+        PROGRESS_STORE[progress_id] = {
+            "total": 0,
+            "current": 0,
+            "start_time": time.time(),
+            "last_update": time.time(),
+            "status": "starting"
+        }
 
         # Construye el comando
         vibevoice_script = PROJECT_ROOT / "vibevoice_app.py"
+        # MODO TEST SI SE ACTIVA: 
+        # vibevoice_script = PROJECT_ROOT / "test_gen_sim.py"
         cmd = [
             sys.executable, str(vibevoice_script),
             "--text", req.text,
-            "--voice-name", req.voice_name,
+            "--voice-name", resolved_path, # Pasamos la ruta resuelta
             "--model", req.model,
             "--output", str(output_file),
             "--cfg-scale", str(req.cfg_scale),
@@ -152,53 +290,108 @@ def generate_audio(req: GenerateRequest):
 
         print(f"\n{'='*60}")
         print(f"[API] Generando audio...")
-        print(f"[API] Voz: {req.voice_name} → {resolved}")
+        print(f"[API] Voz: {req.voice_name} → {resolved_path}")
         print(f"[API] Output: {output_file}")
         print(f"[API] Comando: {' '.join(cmd[:6])}...")
         print(f"{'='*60}")
 
-        result = subprocess.run(
+        # Ejecución con captura de progreso
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=600,
-            cwd=str(PROJECT_ROOT),  # Asegura que el working directory sea el correcto
+            # encoding="utf-8",
+            errors="replace",
+            cwd=str(PROJECT_ROOT),
+            bufsize=1, # Line buffered
+            start_new_session=True,
         )
+        ACTIVE_PROCESSES[progress_id] = process
 
+        stdout_acc = []
+        stderr_acc = []
+
+        # Usar un hilo para leer stderr y evitar bloqueos de buffer
+        import threading
+        def enqueue_stderr(pipe, acc, prog_id):
+            try:
+                for line in iter(pipe.readline, ''):
+                    acc.append(line)
+                    clean_line = line.strip()
+                    # También buscamos progreso en stderr por si acaso
+                    if clean_line.startswith("PROGRESS_STEP:"):
+                        try:
+                            current = int(clean_line.split(":")[1])
+                            PROGRESS_STORE[prog_id]["current"] = current
+                            PROGRESS_STORE[prog_id]["last_update"] = time.time()
+                        except: pass
+                    # print(f"[API-ERR] {line.strip()}")
+                    print(f"[API-ERR] {line.strip()}", flush=True)
+            finally:
+                pipe.close()
+
+        stderr_thread = threading.Thread(target=enqueue_stderr, args=(process.stderr, stderr_acc, progress_id), daemon=True)
+        stderr_thread.start()
+
+        # Leer stdout línea a línea para el progreso
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                stdout_acc.append(line)
+                clean_line = line.strip()
+                # print(f"[API-OUT] {clean_line}") # Debug: Ver todo lo que sale
+                if clean_line.startswith("PROGRESS_START:"):
+                    try:
+                        total = int(clean_line.split(":")[1])
+                        PROGRESS_STORE[progress_id]["total"] = total
+                        PROGRESS_STORE[progress_id]["status"] = "generating"
+                        print(f"[API] Progreso detectado: Total {total}")
+                    except: pass
+                elif clean_line.startswith("PROGRESS_STEP:"):
+                    try:
+                        current = int(clean_line.split(":")[1])
+                        PROGRESS_STORE[progress_id]["current"] = current
+                        PROGRESS_STORE[progress_id]["last_update"] = time.time()
+                        # print(f"[API] Progreso detectado: Step {current}/{PROGRESS_STORE[progress_id]['total']}")
+                    except: pass
+                # print(f"[API-PROC] {clean_line}")
+
+        # Capturar stderr restante (aunque ya lo hace el hilo, esperamos a que termine)
+        stderr_thread.join(timeout=5)
+        ACTIVE_PROCESSES.pop(progress_id, None)
+        
         # Log completo para debug
-        print(f"[API] Return code: {result.returncode}")
-        if result.stdout:
-            # Solo las últimas líneas para no saturar
-            stdout_lines = result.stdout.strip().split("\n")
-            print(f"[API] STDOUT (últimas 20 líneas):")
-            for line in stdout_lines[-20:]:
-                print(f"  {line}")
-        if result.stderr:
-            stderr_lines = result.stderr.strip().split("\n")
-            print(f"[API] STDERR (últimas 20 líneas):")
-            for line in stderr_lines[-20:]:
-                print(f"  {line}")
-
-        if result.returncode != 0:
-            detail = result.stderr[-500:] if result.stderr else result.stdout[-500:] if result.stdout else "Sin salida"
-            raise HTTPException(500, f"Error en vibevoice_app.py (code {result.returncode}):\n{detail}")
+        print(f"[API] Return code: {process.returncode}")
+        if process.returncode != 0:
+            print("[API] === STDOUT ===")
+            print("".join(stdout_acc[-50:]), flush=True)
+        
+        if process.returncode != 0:
+            PROGRESS_STORE[progress_id]["status"] = "failed"
+            detail = "".join(stderr_acc)[-500:] or "".join(stdout_acc)[-500:] or "Sin salida"
+            raise HTTPException(500, f"Error en vibevoice_app.py (code {process.returncode}):\n{detail}")
 
         if not output_file.exists():
+            PROGRESS_STORE[progress_id]["status"] = "failed"
             raise HTTPException(500, f"El script terminó OK pero no generó el archivo: {output_file}")
 
+        PROGRESS_STORE[progress_id]["status"] = "completed"
+        PROGRESS_STORE[progress_id]["current"] = PROGRESS_STORE[progress_id]["total"]
         print(f"[API] ✅ Audio generado: {output_file} ({output_file.stat().st_size} bytes)")
 
         return GenerateResponse(
             success=True,
-            message="Audio generado correctamente",
+            message="Audio generado correctamente (Pendiente de guardar)",
             audio_id=audio_id,
             filename=output_file.name,
+            is_temp=True
         )
 
     except HTTPException:
         raise
-    except subprocess.TimeoutExpired:
-        raise HTTPException(504, "Timeout: la generación tardó más de 10 minutos")
     except Exception as e:
         print(f"[API] ❌ Excepción no controlada: {e}")
         traceback.print_exc()
@@ -206,12 +399,138 @@ def generate_audio(req: GenerateRequest):
 
 
 @app.get("/audio/{audio_id}")
-def download_audio(audio_id: str):
+def download_audio(audio_id: str, directory: Optional[str] = None):
     """Descarga un audio generado por su ID."""
-    matches = list(OUTPUTS_DIR.glob(f"{audio_id}.*"))
+    # Primero buscar en temporal
+    matches = list(TEMP_DIR.glob(f"{audio_id}.*"))
+    if matches:
+        return FileResponse(matches[0], media_type="audio/mpeg", filename=matches[0].name)
+
+    target_dir = OUTPUTS_DIR
+    if directory:
+        custom_dir = Path(directory)
+        if custom_dir.exists() and custom_dir.is_dir():
+            target_dir = custom_dir
+
+    matches = list(target_dir.glob(f"{audio_id}.*"))
     if not matches:
         raise HTTPException(404, f"Audio '{audio_id}' no encontrado")
     return FileResponse(matches[0], media_type="audio/mpeg", filename=matches[0].name)
+
+
+@app.post("/confirm_save")
+def confirm_save(req: SaveRequest):
+    """Mueve un audio de la carpeta temporal a la definitiva."""
+    matches = list(TEMP_DIR.glob(f"{req.audio_id}.*"))
+    if not matches:
+        raise HTTPException(404, f"Audio temporal '{req.audio_id}' no encontrado")
+    
+    temp_file = matches[0]
+    target_dir = OUTPUTS_DIR
+    if req.output_directory:
+        custom_dir = Path(req.output_directory)
+        if custom_dir.exists() and custom_dir.is_dir():
+            target_dir = custom_dir
+        else:
+            custom_dir.mkdir(parents=True, exist_ok=True)
+            target_dir = custom_dir
+
+    final_path = target_dir / temp_file.name
+    
+    # Manejar colisiones por si acaso
+    if final_path.exists():
+        base = temp_file.stem
+        ext = temp_file.suffix
+        counter = 1
+        while (target_dir / f"{base}_{counter}{ext}").exists():
+            counter += 1
+        final_path = target_dir / f"{base}_{counter}{ext}"
+
+    try:
+        import shutil
+        shutil.move(str(temp_file), str(final_path))
+        print(f"[API] Audio guardado permanentemente: {final_path}")
+        return {"success": True, "message": f"Audio guardado en {final_path}", "filename": final_path.name}
+    except Exception as e:
+        raise HTTPException(500, f"Error al guardar el archivo: {str(e)}")
+
+
+@app.post("/cleanup_temp")
+def cleanup_temp():
+    """Cancela procesos activos y borra todos los archivos de la carpeta temporal."""
+    cancelled = 0
+    for progress_id in list(ACTIVE_PROCESSES.keys()):
+        if cancel_active_process(progress_id):
+            cancelled += 1
+
+    count = 0
+    for f in TEMP_DIR.glob("*.*"):
+        try:
+            f.unlink()
+            count += 1
+        except: pass
+    print(f"[API] Limpieza temporal: {cancelled} procesos cancelados, {count} archivos borrados")
+    return {"success": True, "count": count, "cancelled": cancelled}
+
+
+@app.get("/progress/{audio_id}")
+def get_progress(audio_id: str):
+    """Obtiene el progreso de una generación específica."""
+    if audio_id not in PROGRESS_STORE:
+        raise HTTPException(404, "ID de audio no encontrado")
+    return PROGRESS_STORE[audio_id]
+
+
+@app.get("/outputs", response_model=list[OutputFileInfo])
+def list_outputs(directory: Optional[str] = None):
+    """Lista todos los audios generados en el directorio especificado."""
+    target_dir = OUTPUTS_DIR
+    if directory:
+        custom_dir = Path(directory)
+        if custom_dir.exists() and custom_dir.is_dir():
+            target_dir = custom_dir
+
+    files = []
+    # Extensiones de audio comunes
+    for ext in ("*.wav", "*.mp3", "*.flac", "*.ogg"):
+        for f in target_dir.glob(ext):
+            files.append(OutputFileInfo(
+                id=f.stem,
+                filename=f.name,
+                path=str(f),
+                size=f.stat().st_size,
+                created=f.stat().st_mtime
+            ))
+    
+    # Ordenar por fecha de creación descendente
+    files.sort(key=lambda x: x.created, reverse=True)
+    return files
+
+
+@app.delete("/outputs/delete")
+def delete_outputs(filenames: list[str] = Query(...), directory: Optional[str] = None):
+    """Borra uno o varios archivos de audio."""
+    target_dir = OUTPUTS_DIR
+    if directory:
+        custom_dir = Path(directory)
+        if custom_dir.exists() and custom_dir.is_dir():
+            target_dir = custom_dir
+
+    deleted = []
+    errors = []
+    
+    for filename in filenames:
+        file_path = target_dir / filename
+        if file_path.exists() and file_path.is_file():
+            try:
+                os.remove(file_path)
+                deleted.append(filename)
+            except Exception as e:
+                errors.append(f"Error al borrar {filename}: {str(e)}")
+        else:
+            errors.append(f"Archivo no encontrado: {filename}")
+            
+    return {"deleted": deleted, "errors": errors}
 
 
 @app.post("/voices/upload", response_model=VoiceInfo)
@@ -237,7 +556,7 @@ async def upload_voice(
     if temp_path.exists():
         temp_path.unlink()
 
-    voice_path = VOICES_DIR / f"{voice_name}.wav"
+    voice_path = DEFAULT_VOICES_DIR / f"{voice_name}.wav"
     if not voice_path.exists():
         raise HTTPException(500, f"Error procesando voz: {result.stderr[-300:]}")
 
@@ -246,8 +565,8 @@ async def upload_voice(
 
 @app.delete("/voices/{voice_name}")
 def delete_voice(voice_name: str):
-    """Elimina una voz personalizada."""
-    voice_path = VOICES_DIR / f"{voice_name}.wav"
+    """Elimina una voz personalizada (solo del directorio por defecto)."""
+    voice_path = DEFAULT_VOICES_DIR / f"{voice_name}.wav"
     if not voice_path.exists():
         raise HTTPException(404, f"Voz '{voice_name}' no encontrada")
 

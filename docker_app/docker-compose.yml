@@ -1,0 +1,54 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
+    image: truevoice-api:latest
+    container_name: truevoice-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      # Los discos se añaden dinamicamente via docker-compose.override.yml (generado por generate_drives.ps1)
+    environment:
+      - HF_HOME=/root/.cache/huggingface
+      - TRANSFORMERS_CACHE=/root/.cache/huggingface/transformers
+      # Maximizar paralelismo CPU en PyTorch/OpenMP/MKL (0 = auto para MKL/OpenBLAS)
+      - MKL_NUM_THREADS=0
+      - OPENBLAS_NUM_THREADS=0
+      - NUMEXPR_NUM_THREADS=0
+      - TOKENIZERS_PARALLELISM=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: Dockerfile.frontend
+    image: truevoice-frontend:latest
+    container_name: truevoice-frontend
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+      - CONFIG_DIR=/app
+    volumes:
+      # Config persistente (se crea en docker_app/ si no existe)
+      - ./frontend_config.json:/app/frontend_config.json
+      # Los discos se añaden dinamicamente via docker-compose.override.yml (generado por generate_drives.ps1)
+    # Permite acceder a servicios del host (ej: Ollama en localhost)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  hf_cache:
+    driver: local

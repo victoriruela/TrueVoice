@@ -1,364 +1,181 @@
 # TrueVoice — Generador de Audio con Clonación de Voz
 
-Aplicación completa para generar audio a partir de texto usando
-[VibeVoice de Microsoft](https://github.com/microsoft/VibeVoice), con soporte
-para clonación de voz desde archivos de audio, vídeo o YouTube.
+Aplicación completa para generar audio a partir de texto usando [VibeVoice de Microsoft](https://github.com/microsoft/VibeVoice), con soporte para clonación de voz desde archivos de audio, vídeo o YouTube.
 
 Incluye **interfaz web (Streamlit)**, **API REST (FastAPI)** y **CLI** (línea de comandos).
 
-## Arquitectura
+## 🚀 Características
 
-Dependencias principales:
+- ✅ **Conversión de texto a audio (TTS)** con clonación de voz.
+- ✅ **Interfaz web** intuitiva con Streamlit.
+- ✅ **API REST** con FastAPI (documentación interactiva en `/docs`).
+- ✅ **CLI completo** para uso automatizado o por terminal.
+- ✅ **Clonación de voz** desde archivos de audio (`.wav`, `.mp3`) o vídeo (`.mp4`, `.mkv`, etc.).
+- ✅ **Extracción desde YouTube**: Crea voces directamente desde fragmentos de vídeos.
+- ✅ **Múltiples formatos**: Salida en WAV, MP3, FLAC u OGG.
+- ✅ **Control de calidad**: Ajuste de parámetros como CFG Scale y DDPM Steps.
+- ✅ **Gestión de voces**: Listar, subir y eliminar voces personalizadas.
+- ✅ **Soporte Hardware**: Compatible con GPU (CUDA) y CPU.
+- ✅ **Narración de carreras rFactor2**: Parseo de archivos XML de carrera, generación de textos con IA (Ollama) y síntesis de audio por evento.
 
-| Paquete | Uso |
-|---------|-----|
-| `torch`, `torchaudio` | Motor de inferencia |
-| `transformers`, `accelerate` | Carga del modelo VibeVoice |
-| `soundfile` | Procesamiento de audio |
-| `fastapi`, `uvicorn` | API REST |
-| `streamlit` | Interfaz web |
-| `requests` | Comunicación frontend → API |
-| `yt-dlp` | Descarga de audio desde YouTube |
+---
 
-| Servicio | URL |
-|----------|-----|
-| Frontend Streamlit | `http://localhost:8501` |
-| API REST (docs interactivos) | `http://localhost:8000/docs` |
+## 🛠️ Instalación
 
-### Funcionalidades de la interfaz web
+### 1. Requisitos previos
+- Python 3.10 o superior.
+- [FFmpeg](https://ffmpeg.org/) instalado y en el PATH (necesario para procesar vídeo y audio).
+- (Opcional) NVIDIA GPU con drivers actualizados para aceleración CUDA.
+- (Opcional) [Ollama](https://ollama.com/) instalado y en ejecución para la generación de textos con IA (pestaña "Generar textos y audios de carrera").
 
-- **Generar audio**: escribe un texto, elige una voz y ajusta los parámetros.
-- **Reproductor integrado**: escucha el audio generado directamente en el navegador.
-- **Descargar audio**: botón de descarga en el formato elegido.
-- **Gestionar voces**: ver, subir y eliminar voces personalizadas.
-- **Panel de configuración** (sidebar): modelo, formato, CFG Scale, DDPM Steps.
-
-## Uso — CLI (línea de comandos)
-
-### Ver voces disponibles
-
-- ✅ Conversión de texto a audio (TTS) con clonación de voz
-- ✅ Interfaz web con Streamlit
-- ✅ API REST con FastAPI (documentación interactiva en `/docs`)
-- ✅ CLI completo para uso por terminal
-- ✅ Clonación de voz desde archivos de audio o vídeo locales
-- ✅ Extracción de voz desde vídeos de YouTube por fragmento de tiempo
-- ✅ Salida en múltiples formatos: WAV, MP3, FLAC, OGG
-- ✅ Parámetros ajustables de calidad (CFG Scale, DDPM Steps)
-- ✅ Gestión de voces (listar, subir, eliminar) desde la web
-- ✅ Soporte para GPU (CUDA) y CPU
-- ✅ Clonación automática del repositorio de VibeVoice
-
-## Instalación
-
-### Extraer voz desde YouTube
-Puedes crear un preset de voz directamente desde un fragmento de un vídeo de
-YouTube indicando la URL, el tiempo de inicio y el tiempo de fin en formato
-`HH:MM:SS`:
-
+### 2. Clonar e instalar dependencias
 ```bash
-python vibevoice_app.py --youtube-voice "https://www.youtube.com/watch?v=VIDEO_ID" --start 00:01:30 --end 00:02:00 --voice-name MiVoz
+git clone https://github.com/tu-usuario/TrueVoice.git
+cd TrueVoice
+pip install -r requirements.txt
 ```
 
-## Instalación
+### 3. Ejecución rápida (Launcher)
+Si prefieres no abrir varias terminales, puedes usar el lanzador automático:
+```bash
+python launcher.py
+```
+*Esto iniciará la API, el Frontend y abrirá tu navegador automáticamente.*
 
-### 2. Instalar dependencias
+---
 
-bash pip install -r requirements.txt
+## 🖥️ Uso — Interfaz Web (Manual)
 
-### 3. Primera ejecución
+Para usar la interfaz web, se recomienda tener **dos terminales** abiertas:
 
-**Terminal 2 — Levantar el Frontend:**
+**Terminal 1 — Iniciar la API REST:**
+```bash
+python -m uvicorn api_server:app --host 127.0.0.1 --port 8000
+```
+*La API correrá por defecto en `http://localhost:8000`.*
 
-La primera vez que se ejecute la aplicación se realizará automáticamente:
+**Terminal 2 — Iniciar el Frontend:**
+```bash
+streamlit run frontend.py
+```
+*El frontend se abrirá en tu navegador en `http://localhost:8501`.*
 
-1. Clonación del repositorio de VibeVoice
-2. Instalación del paquete `vibevoice`
-3. Descarga del modelo (~6 GB para `VibeVoice-1.5b`)
+---
 
-## Uso — Interfaz Web (recomendado)
+## 📝 Generar textos y audios de carrera (rFactor2)
 
-Se necesitan **dos terminales**:
+La primera pestaña de la interfaz web, **"📝 Generar textos y audios de carrera"**, permite narrar automáticamente una carrera de rFactor2 a partir de su archivo XML de resultados.
 
-**Terminal 1 — Levantar la API REST:**
+### Flujo de trabajo
 
-bash python vibevoice_app.py --list-voices
+1. **Configurar Ollama**: Expande el panel "⚙️ Configuración de Ollama" e introduce la URL de tu instancia de Ollama (por defecto `http://localhost:11434`) y el nombre del modelo (por defecto `llama3.2`). También puedes configurar las carpetas de salida para audios y para el Excel de textos. La configuración se guarda automáticamente.
 
-### Ver voces disponibles
+2. **Cargar archivo XML**: Sube el archivo `.xml` de resultados de carrera de rFactor2 y pulsa **"🔍 Parsear archivo"**. Se extraerá:
+   - **Información de cabecera**: nombre del circuito, longitud, número de vueltas y orden de salida de los pilotos.
+   - **Eventos de carrera** clasificados en tres tipos:
+     - **Tipo 1 — Adelantamiento**: inferido a partir de los cambios de posición entre vueltas.
+     - **Tipo 2 — Choque entre pilotos**: extraído de los incidentes `<Incident>` con otro vehículo, deduplicado por timestamp y par de pilotos.
+     - **Tipo 3 — Choque contra el muro**: extraído de los incidentes `<Incident>` con el muro, deduplicado por timestamp y piloto.
 
-Voces incluidas en el repositorio:
+3. **Generar intro con IA**: Pulsa **"🎙️ Generar intro con IA"** para que Ollama redacte una presentación de la carrera al estilo de un comentarista de Fórmula 1.
 
-| Alias         | Archivo real          |
-|---------------|-----------------------|
-| `Alice`       | `en-Alice_woman`      |
-| `Carter`      | `en-Carter_man`       |
-| `Frank`       | `en-Frank_man`        |
-| `Mary`        | `en-Mary_woman_bgm`   |
-| `Maya`        | `en-Maya_woman`       |
-| `Samuel`      | `in-Samuel_man`       |
-| `Anchen`      | `zh-Anchen_man_bgm`   |
-| `Bowen`       | `zh-Bowen_man`        |
-| `Xinran`      | `zh-Xinran_woman`     |
+4. **Generar descripciones con IA**: Pulsa **"✨ Generar descripciones con IA"** para que Ollama genere una descripción narrativa y variada para cada evento de la tabla. También puedes:
+   - Pulsar **"✍️ Generar texto"** en un evento concreto para regenerar solo esa descripción.
+   - Editar manualmente cualquier texto generado directamente en el campo de texto.
+   - Pulsar **"🗑️"** para eliminar un evento de la tabla.
 
-### Generar audio simple
+5. **Generar audios**: Cada texto (intro y eventos) dispone de un botón **"🔊 Generar audio"** para sintetizar el audio con la voz configurada en TrueVoice. También hay un botón general **"🔊 Generar audio de todos los textos"** que procesa todos en cascada y puede detenerse en cualquier momento pulsando **"💾 Guardar sesión"**.
 
-bash python vibevoice_app.py --text "Hola, esto es una prueba" --output prueba.wav
+6. **Guardar y cargar sesiones**: Pulsa **"💾 Guardar sesión"** para persistir todos los textos, audios y eventos en un archivo JSON (nombrado con el circuito) y en un archivo Excel con las columnas: Vuelta, Timestamp, Tipo, Resumen, Descripción IA y Audio. Las sesiones guardadas aparecen en el selector de la parte superior para poder recargarlas en futuras sesiones.
 
-### Usar una voz específica
+### Tabla de eventos
 
-### Añadir voz personalizada desde audio
+Los eventos se muestran agrupados por vuelta (incluyendo la **Vuelta de formación** para eventos previos al inicio) y ordenados por timestamp dentro de cada vuelta. Cada fila contiene:
 
-bash python vibevoice_app.py --clone-voice mi_voz.wav --voice-name MiVoz
+| Columna | Contenido |
+|---------|-----------|
+| **Timestamp** | Valor `et` del evento en segundos |
+| **Tipo** | Tipo 1 / Tipo 2 / Tipo 3 |
+| **Resumen** | Descripción genérica del evento |
+| **Descripción IA** | Narración generada por Ollama (editable) |
 
-### Añadir voz desde un vídeo local
+### Deduplicación de eventos
 
-bash python vibevoice_app.py --clone-voice video.mp4 --voice-name MiVoz
+- Los choques con el mismo timestamp y los mismos pilotos implicados se registran una sola vez.
+- Si dos eventos del mismo tipo e implicados ocurren con menos de **7 segundos** de diferencia, solo se conserva el primero.
 
-Formatos de video soportados: `.mp4`, `.avi`, `.mov`, `.mkv`, `.flv`, `.wmv`
+---
 
-python vibevoice_app.py --text "Hola, esto es una prueba" --voice-name MiVoz --output resultado.mp3
+## 🔌 API REST
 
-### Modo interactivo
-
-bash python vibevoice_app.py --interactive --voice-name Alice
-
-### Sin clonación de voz (más rápido)
-
-bash python vibevoice_app.py --text "Hola" --disable-prefill --output prueba.wav
-
-### Modo interactivo
-
-## Opciones de línea de comandos
-
-| Opción              | Alias | Descripción |
-|---------------------|-------|-------------|
-| `--text`            | `-t`  | Texto a convertir en audio |
-| `--output`          | `-o`  | Archivo de salida (default: `output.wav`). La extensión determina el formato. |
-| `--clone-voice`     | `-c`  | Audio/video local de referencia para clonar voz |
-| `--youtube-voice`   | `-y`  | URL de YouTube de la que extraer la voz de referencia |
-| `--start`           |       | Tiempo de inicio del fragmento en formato `HH:MM:SS` (para `--youtube-voice`) |
-| `--end`             |       | Tiempo de fin del fragmento en formato `HH:MM:SS` (para `--youtube-voice`) |
-| `--voice-name`      | `-v`  | Nombre de la voz a usar o guardar (default: `Alice`) |
-| `--model`           | `-m`  | Modelo a usar (default: `microsoft/VibeVoice-1.5b`) |
-| `--disable-prefill` |       | Desactiva clonación de voz (voz genérica, más rápido) |
-| `--interactive`     | `-i`  | Modo interactivo para múltiples textos |
-| `--list-voices`     | `-l`  | Lista voces disponibles y sale |
-
-### Alta calidad (más lento)
-## Modelos disponibles
-
-Estándar 1.5B - recomendado para CPU (default, ~6GB)
---model microsoft/VibeVoice-1.5b
-Grande 7B - mayor calidad, requiere GPU (~28GB)
---model microsoft/VibeVoice-7b
-
-> ⚠️ El modelo `Realtime-0.5B` es solo para **streaming** y no es compatible
-> con `inference_from_file.py`. No uses ese modelo con esta aplicación.
-
-## Solución de problemas
-
-### El modelo genera 1 token y falla
-
-Asegúrate de estar usando `microsoft/VibeVoice-1.5b` (por defecto), no el
-modelo `Realtime-0.5B`.
-
-### La voz no se encuentra
-
-Ejecuta `--list-voices` para ver los nombres exactos disponibles. Puedes usar
-los alias cortos (`Alice`, `Maya`...) o el nombre completo del archivo
-(`en-Alice_woman`).
-
-### Error al procesar video
-
-## Instala FFmpeg:
-
-bash conda install ffmpeg -c conda-forge
-
-### Advertencia de symlinks en Windows
-
-Activa el **Modo Desarrollador** en Windows:
-*Configuración → Actualización y seguridad → Para desarrolladores → Modo de desarrollador*
-
-### Formatos de salida
-
-La extensión del archivo `--output` determina el formato. Se soportan:
-**WAV**, **MP3**, **FLAC** y **OGG**.
-
-## Referencias
-
-- [VibeVoice GitHub (Oficial)](https://github.com/microsoft/VibeVoice)
-- [VibeVoice GitHub (Comunidad)](https://github.com/vibevoice-community/VibeVoice)
-- [VibeVoice en Hugging Face](https://huggingface.co/collections/microsoft/vibevoice)
-### Sin clonación de voz (más rápido)
-
-## Voces incluidas
-
-| Alias | Archivo | Idioma |
-|-------|---------|--------|
-| `Alice` | `en-Alice_woman` | Inglés |
-| `Carter` | `en-Carter_man` | Inglés |
-| `Frank` | `en-Frank_man` | Inglés |
-| `Mary` | `en-Mary_woman_bgm` | Inglés |
-| `Maya` | `en-Maya_woman` | Inglés |
-| `Samuel` | `in-Samuel_man` | Hindi |
-| `Anchen` | `zh-Anchen_man_bgm` | Chino |
-| `Bowen` | `zh-Bowen_man` | Chino |
-| `Xinran` | `zh-Xinran_woman` | Chino |
-
-Puedes añadir voces propias desde la interfaz web, por CLI o copiando archivos `.wav`
-en `VibeVoice/demo/voices/`.
-
-## Opciones CLI completas
-
-| Opción | Alias | Descripción |
-|--------|-------|-------------|
-| `--text` | `-t` | Texto a convertir en audio |
-| `--output` | `-o` | Archivo de salida (extensión = formato). Default: `output.wav` |
-| `--clone-voice` | `-c` | Audio/vídeo local para clonar voz |
-| `--youtube-voice` | `-y` | URL de YouTube para extraer voz |
-| `--start` | | Inicio del fragmento `HH:MM:SS` (con `--youtube-voice`) |
-| `--end` | | Fin del fragmento `HH:MM:SS` (con `--youtube-voice`) |
-| `--voice-name` | `-v` | Nombre de la voz (default: `Alice`) |
-| `--model` | `-m` | Modelo HuggingFace (default: `microsoft/VibeVoice-1.5b`) |
-| `--cfg-scale` | | CFG Scale `0.5-5.0` (default: `2.0`) |
-| `--ddpm-steps` | | Pasos DDPM `1-200` (default: `30`) |
-| `--disable-prefill` | | Desactiva clonación de voz |
-| `--interactive` | `-i` | Modo interactivo |
-| `--list-voices` | `-l` | Listar voces y salir |
-
-## Endpoints de la API REST
+Si prefieres integrar TrueVoice en otras aplicaciones, usa la API.
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
 | `GET` | `/` | Estado de la API |
 | `GET` | `/voices` | Lista de voces disponibles |
-| `GET` | `/models` | Lista de modelos disponibles |
-| `POST` | `/generate` | Genera audio a partir de texto (JSON) |
-| `GET` | `/audio/{audio_id}` | Descarga un audio generado |
-| `POST` | `/voices/upload` | Sube una nueva voz (multipart/form-data) |
-| `DELETE` | `/voices/{voice_name}` | Elimina una voz personalizada |
+| `POST` | `/generate` | Genera audio (JSON) |
+| `GET` | `/audio/{id}`| Descarga el audio generado |
+| `POST` | `/voices/upload`| Sube una nueva voz (Multipart) |
+| `DELETE`| `/voices/{name}`| Elimina una voz personalizada |
 
-Documentación interactiva (Swagger): `http://localhost:8000/docs`
+**Documentación Interactiva:** Visita `http://localhost:8000/docs` una vez iniciada la API.
 
-## Parámetros de calidad
+---
 
-| Parámetro | Qué controla | Rango | Recomendado |
+## 💻 Uso — CLI (Línea de Comandos)
+
+El script principal es `vibevoice_app.py`.
+
+### Comandos comunes:
+
+**Listar voces:**
+```bash
+python vibevoice_app.py --list-voices
+```
+
+**Generar audio con voz predeterminada:**
+```bash
+python vibevoice_app.py --text "Hola, bienvenido a TrueVoice." --output saludo.wav
+```
+
+**Clonar una voz desde un archivo local:**
+```bash
+python vibevoice_app.py --clone-voice mi_referencia.mp3 --voice-name MiVoz --text "Texto con mi voz."
+```
+
+**Extraer voz desde YouTube:**
+```bash
+python vibevoice_app.py --youtube-voice "URL_VIDEO" --start 00:00:10 --end 00:00:20 --voice-name ViralVoice
+```
+
+---
+
+## ⚙️ Configuración y Calidad
+
+### Parámetros ajustables:
+
+| Parámetro | Descripción | Rango | Recomendado |
 |-----------|-------------|-------|-------------|
-| **CFG Scale** | Fidelidad al texto. Más alto = sigue más el texto | 0.5 – 5.0 | 1.5 – 2.5 |
-| **DDPM Steps** | Calidad del audio. Más pasos = mejor pero más lento | 1 – 200 | 20 – 50 |
+| **CFG Scale** | Fidelidad al texto. | 0.5 – 5.0 | 1.5 – 2.5 |
+| **DDPM Steps**| Calidad/Detalle. | 1 – 200 | 20 – 50 |
 
-### El modelo genera 1 token y falla
+### Modelos:
+- `microsoft/VibeVoice-1.5b` (Default): Equilibrio entre velocidad y calidad. Funciona bien en CPU.
+- `microsoft/VibeVoice-7b`: Máxima calidad. Requiere ~28GB de VRAM (GPU).
 
-| Escenario | CFG Scale | DDPM Steps | Velocidad |
-|-----------|-----------|------------|-----------|
-| Prueba rápida | 1.2 | 5 | ⚡ Muy rápido |
-| Balance | 1.5 | 20 | 🟢 Rápido |
-| Alta calidad | 1.8 | 30 | 🟡 Moderado |
-| Producción | 2.0 | 50 | 🔴 Lento |
+---
 
-## Modelos disponibles
+## ❓ Solución de Problemas
 
-| Modelo | Parámetros | Tamaño | Notas |
-|--------|-----------|--------|-------|
-| `microsoft/VibeVoice-1.5b` | 1.5B | ~6 GB | Recomendado, funciona en CPU |
-| `microsoft/VibeVoice-7b` | 7B | ~28 GB | Mayor calidad, requiere GPU |
+- **Error de Symlinks en Windows:** Activa el **Modo Desarrollador** en la configuración de Windows.
+- **FFmpeg no encontrado:** Asegúrate de que `ffmpeg` esté instalado. Prueba ejecutando `ffmpeg -version` en tu terminal.
+- **Memoria insuficiente:** Si usas el modelo 7B y falla, intenta volver al 1.5b (por defecto).
+- **Ollama no genera texto:** Verifica que Ollama esté en ejecución (`ollama serve`) y que el modelo indicado esté descargado (`ollama pull llama3.2`). Los errores de conexión se muestran directamente en la interfaz.
 
-> ⚠️ El modelo `Realtime-0.5B` es solo para streaming y **no es compatible**
-> con esta aplicación.
+---
 
-## Solución de problemas
-
-### No se puede conectar con la API
-
-Asegúrate de que la API está corriendo:
-### Advertencia de symlinks en Windows
-
-Activa el **Modo Desarrollador**:
-*Configuración → Actualización y seguridad → Para desarrolladores → Modo de desarrollador*
-
-## Formatos de salida
-
-La extensión del archivo `--output` determina el formato automáticamente:
-
-- `.wav` — Sin compresión, máxima calidad
-- `.mp3` — Comprimido, compatible universal
-- `.flac` — Compresión sin pérdida
-- `.ogg` — Compresión abierta
-
-## Consejos para mejor calidad de clonación
-
-- Usa **20-60 segundos** de audio limpio de referencia
-- Evita ruido de fondo, música o reverberación
-- Una sola persona hablando en el audio
-- Audio en buena calidad (sin distorsión, volumen adecuado)
-
-## Referencias
-
-- [VibeVoice — GitHub (Oficial)](https://github.com/microsoft/VibeVoice)
-- [VibeVoice — GitHub (Comunidad)](https://github.com/vibevoice-community/VibeVoice)
-- [VibeVoice — Hugging Face](https://huggingface.co/collections/microsoft/vibevoice)
-- [FastAPI — Documentación](https://fastapi.tiangolo.com/)
-- [Streamlit — Documentación](https://docs.streamlit.io/)
-
-@app.post("/generate", response_model=GenerateResponse)
-def generate_audio(req: GenerateRequest):
-    """Genera audio a partir de texto usando VibeVoice."""
-    # Valida la voz
-    resolved = _resolve_voice(req.voice_name)
-    if resolved is None:
-        available = [f.stem for f in VOICES_DIR.glob("*.wav")]
-        raise HTTPException(404, f"Voz '{req.voice_name}' no encontrada. Disponibles: {available}")
-
-    # Valida formato
-    fmt = req.output_format.lower().lstrip(".")
-    if fmt not in ("wav", "mp3", "flac", "ogg"):
-        raise HTTPException(400, f"Formato '{fmt}' no soportado. Usa: wav, mp3, flac, ogg")
-
-    # Genera un ID único para este audio
-    audio_id = uuid.uuid4().hex[:12]
-    output_file = OUTPUTS_DIR / f"{audio_id}.{fmt}"
-
-    # Llama al backend CLI
-    cmd = [
-        sys.executable, str(PROJECT_ROOT / "vibevoice_app.py"),
-        "--text", req.text,
-        "--voice-name", req.voice_name,
-        "--model", req.model,
-        "--output", str(output_file),
-        "--cfg-scale", str(req.cfg_scale),
-        "--ddpm-steps", str(req.ddpm_steps),
-    ]
-    if req.disable_prefill:
-        cmd.append("--disable-prefill")
-
-    print(f"\n[API] Ejecutando comando:")
-    print(f"  {' '.join(cmd)}")
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    except subprocess.TimeoutExpired:
-        raise HTTPException(504, "Timeout: la generación tardó más de 10 minutos")
-
-    # Log stdout y stderr para debug
-    if result.stdout:
-        print(f"[API] STDOUT:\n{result.stdout[-1000:]}")
-    if result.stderr:
-        print(f"[API] STDERR:\n{result.stderr[-1000:]}")
-    print(f"[API] Return code: {result.returncode}")
-
-    if result.returncode != 0 or not output_file.exists():
-        # Combina stdout y stderr para dar más contexto del error
-        detail_parts = []
-        if result.stderr:
-            detail_parts.append(result.stderr[-500:])
-        if result.stdout:
-            detail_parts.append(result.stdout[-500:])
-        detail = "\n".join(detail_parts) if detail_parts else "Error desconocido (sin salida)"
-        raise HTTPException(500, f"Error generando audio:\n{detail}")
-
-    return GenerateResponse(
-        success=True,
-        message="Audio generado correctamente",
-        audio_id=audio_id,
-        filename=output_file.name,
-    )
+## 📄 Referencias
+- [VibeVoice Oficial](https://github.com/microsoft/VibeVoice)
+- [Hugging Face Models](https://huggingface.co/collections/microsoft/vibevoice)
+- [Ollama](https://ollama.com/)

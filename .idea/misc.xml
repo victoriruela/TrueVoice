@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="vibevoice" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="vibevoice" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="TrueVoice" project-jdk-type="Python SDK" />
 </project>
