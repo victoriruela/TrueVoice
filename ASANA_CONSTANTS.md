@@ -16,7 +16,7 @@
 | Constante | Valor |
 |-----------|-------|
 | Nombre del proyecto | `TrueVoice` |
-| Project GID | `[PENDIENTE — rellenar tras crear el proyecto en Asana]` |
+| Project GID | `1213903547619538` |
 | Workspace GID | `1213846793386214` |
 
 > **Importante**: Una vez creado el proyecto en Asana, actualizar este archivo y `AGENTS.md`
@@ -26,11 +26,9 @@
 
 | Sección | GID |
 |---------|-----|
-| `To Do` | `[PENDIENTE]` |
-| `In Progress` | `[PENDIENTE]` |
-| `In Review` | `[PENDIENTE]` |
-| `Done` | `[PENDIENTE]` |
-
-> Obtener los GIDs reales con `get_project(project_id, include_sections=True)` y actualizar esta tabla.
+| `Pending` | `1213903547619566` |
+| `In Progress` | `1213902454337091` |
+| `In Hold` | `1213902454337092` |
+| `Done` | `1213902454337093` |
 
 Ver [`ASANA.md`](ASANA.md) para la documentación completa del plugin y su uso.

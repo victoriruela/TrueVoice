@@ -59,12 +59,12 @@ El proyecto usa **Board layout** con cuatro secciones fijas (crear si no existen
 
 | Sección | Significado |
 |---------|-------------|
-| `To Do` | Tarea creada, no iniciada |
+| `Pending` | Tarea creada, no iniciada |
 | `In Progress` | Subagente trabajando activamente |
-| `In Review` | Subagente hizo commit; supervisor revisando |
+| `In Hold` | Bloqueada o en espera de revisión |
 | `Done` | Mergeada y verificada |
 
-Al crear tareas, siempre proporcionar `section_id` apuntando al GID de la sección `To Do`.
+Al crear tareas, siempre proporcionar `section_id` apuntando al GID de la sección `Pending`.
 Obtener los GIDs de sección con `get_project(project_id, include_sections=True)`.
 
 ## Protocolo de Fallo MCP — OBLIGATORIO

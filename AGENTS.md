@@ -21,13 +21,26 @@ TrueVoice es una aplicación completa de síntesis de voz con clonación (TTS) b
 
 ## Arquitectura
 
+**Estado de migración (actual):**
+- Backend principal en Go: `truevoice-go/cmd/truevoice` + `truevoice-go/internal/*`
+- Frontend objetivo: Expo Web (`truevoice-web`), exportado a web y servido como estático embebido en el binario Go
+- Sidecar Python de VibeVoice: bootstrap on-demand vía `GET /setup/status` y `POST /setup/bootstrap`
+- Backend Python/Streamlit (`api_server.py`, `frontend.py`) permanece como legado durante transición
+
 ```
 User (Browser)
     |
-Streamlit Frontend (:8501)       ← frontend.py
-    |  HTTP calls a localhost:8000
-FastAPI Backend (:8000)          ← api_server.py
+Go HTTP Server (:8000)           ← truevoice-go/cmd/truevoice/main.go
+    |  API + static web embed (single binary)
     |
+    ├── Generation Manager        ← truevoice-go/internal/generation/*
+    │     Bootstrap Python runtime + subprocess vibevoice_app.py
+    │
+    ├── Race Parser               ← truevoice-go/internal/race/*
+    │     Parseo XML rFactor2 + sesiones + export XLSX
+    │
+    ├── Voices / Config           ← truevoice-go/internal/voices + internal/config
+    │
     ├── Inference Wrapper         ← inference_wrapper.py (invocado como subprocess)
     │     VoiceMapper + VibeVoice model (HuggingFace)
     │     Directorio de voces → voices/
@@ -51,6 +64,15 @@ FastAPI Backend (:8000)          ← api_server.py
 
 ```
 TrueVoice/
+├── truevoice-go/               # Backend Go (cmd/truevoice + internal/*); API principal en migración
+│   ├── cmd/truevoice/main.go   # Entry point del binario único en Go
+│   └── internal/
+│       ├── server/             # Router HTTP + static embed (webdist exportado desde truevoice-web)
+│       ├── generation/         # Generate/progress/cancel + bootstrap sidecar Python
+│       ├── race/               # Parser carrera + sesiones + Excel
+│       ├── voices/             # Gestión/resolución de voces
+│       └── config/             # Persistencia frontend_config.json
+├── truevoice-web/              # Frontend Expo (web-only) con Zustand; export web -> truevoice-go/internal/server/webdist/
 ├── api_server.py               # FastAPI REST API; endpoints de generación, voces, progreso
 ├── frontend.py                 # Streamlit UI; configuración, generación, narración de carrera
 ├── inference_wrapper.py        # Wrapper de inferencia VibeVoice (ejecutado como subprocess)
@@ -73,6 +95,7 @@ TrueVoice/
 ├── race_sessions/              # Sesiones de narración guardadas (JSON + Excel por carrera)
 ├── archivos_ejemplo/           # Archivos XML de ejemplo para pruebas del race parser
 ├── AGENTS.md                   # ESTE ARCHIVO — contexto completo para agentes IA
+├── SUBAGENTS.md                # Flujo operativo Asana + subagentes (paralelizacion)
 ├── GIT.md                      # Flujo git, convenciones de commits, procedimiento de release
 ├── ASANA.md                    # Integración Asana MCP
 ├── CONSTANTS.md                # Índice de archivos de constantes por dominio
@@ -92,6 +115,7 @@ accelerate               # HuggingFace accelerate (model loading)
 huggingface_hub          # Descarga de modelos HuggingFace
 soundfile                # Lectura/escritura de audio WAV
 scipy                    # Procesamiento de señal
+numpy<2                  # Compatibilidad binaria con torch/torchaudio CPU usados por VibeVoice
 yt-dlp                   # Extracción de audio desde YouTube
 moviepy                  # Procesamiento de vídeo
 pydantic                 # Validación de datos (via FastAPI)
@@ -127,7 +151,11 @@ En Docker el frontend apunta a `http://api:8000` (nombre de servicio Docker) en 
 ### Estado y voces
 
 #### `GET /`
-Health check. Devuelve `{"status": "ok", "service": "TrueVoice API", "version": "1.0.0"}`.
+Health check. Devuelve `{"status": "ok", "service": "TrueVoice API", "version": "2.0.0"}` en el backend Go.
+
+#### `GET /models`
+Lista modelos disponibles para síntesis.
+Devuelve array de `ModelInfo {id, name, size}`.
 
 #### `GET /voices`
 Lista las voces disponibles en el directorio configurado.
@@ -135,7 +163,7 @@ Query param opcional: `directory` (ruta absoluta al directorio de voces alternat
 Devuelve array de `VoiceInfo {name, filename, alias}`.
 
 #### `POST /voices/upload`
-Sube un nuevo archivo de voz WAV. Multipart form: `file` (UploadFile), `name` (Form string).
+Sube un nuevo archivo de voz WAV. Multipart form: `audio_file` (UploadFile), `voice_name` (Form string).
 El archivo se guarda en `voices/{name}.wav`.
 
 #### `DELETE /voices/{name}`
@@ -168,17 +196,26 @@ Consulta el progreso de una generación activa. Devuelve `{total, current, statu
 #### `POST /cancel/{progress_id}`
 Cancela una generación en curso enviando SIGTERM al subprocess activo.
 
-#### `POST /save/{audio_id}`
+#### `POST /confirm_save`
 Mueve un archivo de `temp_outputs/` a `api_outputs/` (o a `output_directory` si se especifica).
 Body: `SaveRequest {audio_id, output_directory?}`.
+
+#### `GET /setup/status`
+Estado del sidecar Python (bootstrap/runtime).
+Devuelve `{running, ready, stage, error, last_update, python_path, runtime_path}`.
+
+#### `POST /setup/bootstrap`
+Fuerza bootstrap del runtime Python para VibeVoice (primer arranque o recuperación).
+Devuelve `{status, python_path, runtime_path}`.
 
 ### Mantenimiento
 
 #### `GET /outputs`
 Lista los archivos generados en `api_outputs/`. Devuelve array de `OutputFileInfo`.
 
-#### `DELETE /outputs/{audio_id}`
-Elimina un archivo de `api_outputs/` por su ID/nombre.
+#### `DELETE /outputs/delete`
+Elimina archivos de `api_outputs/` por lista de nombres.
+Soporta `filenames[]` por query y/o body JSON.
 
 #### `POST /cleanup_temp`
 Elimina todos los archivos de `temp_outputs/` con más de 1 hora de antigüedad.
@@ -192,6 +229,7 @@ Elimina todos los archivos de `temp_outputs/` con más de 1 hora de antigüedad.
 3. Inicialización de entrada en `PROGRESS_STORE` con estado `"starting"`
 4. Construcción del comando subprocess:
    `python vibevoice_app.py --text ... --voice-name <ruta_absoluta> --model ... --output ... --cfg-scale ... --ddpm-steps ...`
+  Nota: el formato final se infiere por la extensión de `--output` (`.wav`, `.mp3`, `.flac`, `.ogg`); no existe flag `--output-format` en el CLI.
 5. Ejecución como subprocess con captura de stdout/stderr en tiempo real
 6. El progreso se parsea de la salida del subprocess y se actualiza en `PROGRESS_STORE`
 7. En éxito: archivo escrito en `temp_outputs/`, estado `"done"`
@@ -201,6 +239,7 @@ Elimina todos los archivos de `temp_outputs/` con más de 1 hora de antigüedad.
 
 Ejecutado como proceso independiente por `vibevoice_app.py`:
 1. Configura `PYTHONPATH` para encontrar el paquete `vibevoice` en `VibeVoice/`
+  y añade la raíz del proyecto a `sys.path` para importar módulos locales (ej. `patches.py`)
 2. Aplica parches de compatibilidad (`patches.py`) antes de importar VibeVoice
 3. Instancia `VoiceMapper` — mapea nombres de voz a rutas WAV en `voices/`
 4. Carga el modelo VibeVoice desde HuggingFace (caché en `HF_HOME`)
@@ -289,11 +328,12 @@ Frontend ──► host.docker.internal:11434 (Ollama, corre en el host)
 ## Asana MCP Integration
 
 Ver [`ASANA.md`](ASANA.md) para detalles completos.
+Ver [`SUBAGENTS.md`](SUBAGENTS.md) para el protocolo de paralelización con subagentes.
 
 ### Proyecto canónico
 
 El proyecto Asana para este repositorio es **"TrueVoice"**
-(GID: `[PENDIENTE — reemplazar tras crear el proyecto]`, workspace: `1213846793386214`).
+(GID: `1213903547619538`, workspace: `1213846793386214`).
 **Usar siempre este proyecto.** Nunca crear un segundo proyecto.
 
 ### Estructura del board
@@ -302,9 +342,9 @@ El proyecto usa **Board layout** con cuatro secciones fijas:
 
 | Sección | Significado |
 |---------|-------------|
-| `To Do` | Tarea creada, no iniciada |
+| `Pending` | Tarea creada, no iniciada |
 | `In Progress` | Asignada a un subagente, en trabajo activo |
-| `In Review` | Subagente ha hecho commit; supervisor revisando |
+| `In Hold` | Bloqueada o en espera de revisión |
 | `Done` | Mergeada y verificada |
 
 ### Protocolo de fallo MCP — OBLIGATORIO
@@ -370,6 +410,11 @@ streamlit run frontend.py
 
 # O usar el lanzador automático
 python launcher.py
+
+# Exportar frontend web para incrustarlo en el binario Go
+cd truevoice-web
+node .\node_modules\expo\bin\cli export --platform web
+# Copiar dist/ a truevoice-go/internal/server/webdist/
 ```
 
 ### Inicio con Docker
@@ -390,7 +435,8 @@ docker compose up api
 | Servicio | URL | Comando local |
 |---------|-----|---------------|
 | API Backend | http://localhost:8000 | `uvicorn api_server:app --port 8000` |
-| Frontend | http://localhost:8501 | `streamlit run frontend.py` |
+| UI embebida Go | http://localhost:8000/app | `truevoice-go\\truevoice.exe` |
+| Frontend legado | http://localhost:8501 | `streamlit run frontend.py` |
 | API Docs (Swagger) | http://localhost:8000/docs | automático con FastAPI |
 | Ollama (externo) | http://localhost:11434 | `ollama serve` (host) |
 

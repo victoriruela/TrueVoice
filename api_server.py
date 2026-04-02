@@ -1,23 +1,28 @@
 """
 API REST para VibeVoice TTS con FastAPI.
-Sirve como capa intermedia entre el frontend (Streamlit) y el backend (vibevoice_app.py).
+Backend consolidado: generación de audio, voces, narración de carrera, config y proxy Ollama.
 """
 
 import os
+import re
 import signal
 import sys
 import uuid
+import shutil
 import subprocess
 import traceback
+from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, APIRouter
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import json
 import time
+
+import requests as http_client
 
 app = FastAPI(
     title="TrueVoice API",
@@ -40,9 +45,17 @@ DEFAULT_VOICES_DIR = PROJECT_ROOT / "voices"
 VIBEVOICE_VOICES_DIR = VIBEVOICE_REPO / "demo" / "voices"
 OUTPUTS_DIR = PROJECT_ROOT / "api_outputs"
 TEMP_DIR = PROJECT_ROOT / "temp_outputs"
+SESSIONS_DIR = PROJECT_ROOT / "race_sessions"
+CONFIG_FILE = PROJECT_ROOT / "frontend_config.json"
 OUTPUTS_DIR.mkdir(exist_ok=True)
 TEMP_DIR.mkdir(exist_ok=True)
+SESSIONS_DIR.mkdir(exist_ok=True)
 DEFAULT_VOICES_DIR.mkdir(exist_ok=True) # Asegurar que existe
+
+from race_parser import (
+    parse_race_file, parse_race_header, generate_ai_intro, generate_ai_descriptions,
+    RaceHeader, RaceEvent,
+)
 
 # Variable global para mantener compatibilidad con código antiguo que pueda usarla
 VOICES_DIR = DEFAULT_VOICES_DIR
@@ -123,6 +136,53 @@ class GenerateResponse(BaseModel):
 class SaveRequest(BaseModel):
     audio_id: str
     output_directory: Optional[str] = None
+
+
+class ConfigUpdate(BaseModel):
+    """Partial config update — only provided keys are merged."""
+    selected_voice: Optional[str] = None
+    selected_model_name: Optional[str] = None
+    selected_model: Optional[str] = None
+    output_format: Optional[str] = None
+    cfg_scale: Optional[float] = None
+    ddpm_steps: Optional[int] = None
+    disable_prefill: Optional[bool] = None
+    voice_folder_type: Optional[str] = None
+    custom_folder_path: Optional[str] = None
+    output_folder_type: Optional[str] = None
+    custom_output_path: Optional[str] = None
+    texts_folder_type: Optional[str] = None
+    custom_texts_path: Optional[str] = None
+    output_directory: Optional[str] = None
+    voice_directory: Optional[str] = None
+    ollama_url: Optional[str] = None
+    ollama_model: Optional[str] = None
+    generation_tasks: Optional[list] = None
+    last_text_input: Optional[str] = None
+    last_custom_name: Optional[str] = None
+    last_race_session: Optional[str] = None
+    audio_output_folder: Optional[str] = None
+    texts_output_folder: Optional[str] = None
+
+
+class OllamaGenerateRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    model: Optional[str] = None
+    options: Optional[dict] = None
+
+
+class RaceSessionSave(BaseModel):
+    intro_text: str = ""
+    intro_audio: str = ""
+    header: dict = {}
+    events: list = []
+    event_audios: dict = {}
+
+
+class RaceDescriptionRequest(BaseModel):
+    events: list
+    ollama_url: Optional[str] = None
+    ollama_model: Optional[str] = None
 
 
 # ── Utilidades ──────────────────────────────────────────────────────────────
@@ -447,7 +507,6 @@ def confirm_save(req: SaveRequest):
         final_path = target_dir / f"{base}_{counter}{ext}"
 
     try:
-        import shutil
         shutil.move(str(temp_file), str(final_path))
         print(f"[API] Audio guardado permanentemente: {final_path}")
         return {"success": True, "message": f"Audio guardado en {final_path}", "filename": final_path.name}
@@ -584,3 +643,267 @@ def list_models():
         {"id": "microsoft/VibeVoice-1.5b", "name": "VibeVoice 1.5B (recomendado)", "size": "~6GB"},
         {"id": "microsoft/VibeVoice-7b", "name": "VibeVoice 7B (alta calidad)", "size": "~28GB"},
     ]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONFIG ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _load_config() -> dict:
+    """Read frontend_config.json, return empty dict on error."""
+    if CONFIG_FILE.exists():
+        try:
+            return json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_config(config: dict) -> None:
+    """Write config dict to frontend_config.json."""
+    CONFIG_FILE.write_text(json.dumps(config, indent=4, ensure_ascii=False), encoding="utf-8")
+
+
+@app.get("/config")
+def get_config():
+    """Return the full frontend configuration."""
+    return _load_config()
+
+
+@app.put("/config")
+def update_config(update: ConfigUpdate):
+    """Partial-merge update of frontend configuration. Only provided (non-null) keys are written."""
+    config = _load_config()
+    patch = {k: v for k, v in update.model_dump().items() if v is not None}
+    config.update(patch)
+    _save_config(config)
+    return config
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OLLAMA PROXY ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_ollama_url() -> str:
+    config = _load_config()
+    return config.get("ollama_url", "http://localhost:11434")
+
+
+@app.get("/ollama/models")
+def ollama_list_models():
+    """Proxy: list available Ollama models."""
+    ollama_url = _get_ollama_url()
+    try:
+        resp = http_client.get(f"{ollama_url}/api/tags", timeout=15)
+        resp.raise_for_status()
+        models = resp.json().get("models", [])
+        return [m.get("name", m.get("model", "unknown")) for m in models]
+    except http_client.ConnectionError:
+        raise HTTPException(502, f"No se pudo conectar a Ollama en {ollama_url}")
+    except Exception as e:
+        raise HTTPException(502, f"Error al consultar Ollama: {e}")
+
+
+@app.post("/ollama/generate")
+def ollama_generate(req: OllamaGenerateRequest):
+    """Proxy: generate text via Ollama."""
+    config = _load_config()
+    ollama_url = config.get("ollama_url", "http://localhost:11434")
+    model = req.model or config.get("ollama_model", "llama3.2")
+
+    payload = {"model": model, "prompt": req.prompt, "stream": False}
+    if req.options:
+        payload["options"] = req.options
+
+    try:
+        resp = http_client.post(f"{ollama_url}/api/generate", json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        return {"text": data.get("response", "").strip(), "model": model}
+    except http_client.ConnectionError:
+        raise HTTPException(502, f"No se pudo conectar a Ollama en {ollama_url}")
+    except Exception as e:
+        raise HTTPException(502, f"Error en Ollama: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DIRECTORY BROWSING ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/browse/drives")
+def browse_drives():
+    """List mounted drives (useful inside Docker on Windows host)."""
+    drives = []
+    mnt = Path("/mnt")
+    if mnt.exists():
+        for child in sorted(mnt.iterdir()):
+            if child.is_dir() and len(child.name) == 1 and child.name.isalpha():
+                drives.append(child.name)
+    if not drives:
+        drives = ["c"]
+    return drives
+
+
+@app.get("/browse/folders")
+def browse_folders(path: str = Query(..., description="Absolute path to list")):
+    """List subdirectories at the given path."""
+    target = Path(path)
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(404, f"Directorio no encontrado: {path}")
+
+    items = []
+    try:
+        for child in sorted(target.iterdir()):
+            if child.is_dir():
+                items.append({"name": child.name, "path": str(child)})
+    except PermissionError:
+        raise HTTPException(403, f"Sin permisos para leer: {path}")
+
+    return {"current": str(target), "parent": str(target.parent), "folders": items}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RACE NARRATION ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/race/parse")
+async def race_parse(file: UploadFile = File(...)):
+    """Parse an rFactor2 XML results file. Returns header + events."""
+    content = (await file.read()).decode("utf-8", errors="replace")
+    header = parse_race_header(content)
+    events = parse_race_file(content)
+    return {
+        "header": asdict(header),
+        "events": [asdict(e) for e in events],
+    }
+
+
+@app.post("/race/intro")
+def race_generate_intro(header: dict, ollama_url: Optional[str] = None, ollama_model: Optional[str] = None):
+    """Generate a race introduction text via Ollama."""
+    config = _load_config()
+    url = ollama_url or config.get("ollama_url", "http://localhost:11434")
+    model = ollama_model or config.get("ollama_model", "llama3.2")
+
+    rh = RaceHeader(
+        track_event=header.get("track_event", ""),
+        track_length=header.get("track_length", 0),
+        race_laps=header.get("race_laps", 0),
+        num_drivers=header.get("num_drivers", 0),
+        grid_order=header.get("grid_order", []),
+        intro_text=header.get("intro_text", ""),
+    )
+    result = generate_ai_intro(rh, url, model)
+    return {"intro_text": result.intro_text}
+
+
+@app.post("/race/descriptions")
+def race_generate_descriptions(req: RaceDescriptionRequest):
+    """Generate AI descriptions for race events via Ollama."""
+    config = _load_config()
+    url = req.ollama_url or config.get("ollama_url", "http://localhost:11434")
+    model = req.ollama_model or config.get("ollama_model", "llama3.2")
+
+    events = []
+    for e in req.events:
+        events.append(RaceEvent(
+            lap=e.get("lap", 0),
+            timestamp=e.get("timestamp", 0.0),
+            event_type=e.get("event_type", 1),
+            summary=e.get("summary", ""),
+            description=e.get("description", ""),
+        ))
+
+    result_events = generate_ai_descriptions(events, url, model)
+    return {"events": [asdict(e) for e in result_events]}
+
+
+@app.get("/race/sessions")
+def race_list_sessions():
+    """List saved race narration sessions."""
+    sessions = []
+    for f in sorted(SESSIONS_DIR.glob("*.json")):
+        sessions.append({"name": f.stem, "filename": f.name, "size": f.stat().st_size, "modified": f.stat().st_mtime})
+    return sessions
+
+
+@app.get("/race/sessions/{name}")
+def race_get_session(name: str):
+    """Load a saved race session by name."""
+    path = SESSIONS_DIR / f"{name}.json"
+    if not path.exists():
+        raise HTTPException(404, f"Sesión '{name}' no encontrada")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.post("/race/sessions/{name}")
+def race_save_session(name: str, session: RaceSessionSave):
+    """Save a race narration session."""
+    path = SESSIONS_DIR / f"{name}.json"
+    path.write_text(json.dumps(session.model_dump(), indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"success": True, "name": name}
+
+
+@app.delete("/race/sessions/{name}")
+def race_delete_session(name: str):
+    """Delete a saved race session."""
+    path = SESSIONS_DIR / f"{name}.json"
+    if not path.exists():
+        raise HTTPException(404, f"Sesión '{name}' no encontrada")
+    path.unlink()
+    return {"success": True}
+
+
+@app.get("/race/sessions/{name}/excel")
+def race_export_excel(name: str):
+    """Export a race session to Excel and return the file."""
+    session_path = SESSIONS_DIR / f"{name}.json"
+    if not session_path.exists():
+        raise HTTPException(404, f"Sesión '{name}' no encontrada")
+
+    session = json.loads(session_path.read_text(encoding="utf-8"))
+    events = session.get("events", [])
+
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        raise HTTPException(500, "openpyxl no está instalado en el servidor")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Eventos"
+    ws.append(["Vuelta", "Timestamp", "Tipo", "Resumen", "Descripción IA", "Audio"])
+
+    type_labels = {1: "Adelantamiento", 2: "Choque entre pilotos", 3: "Choque contra muro", 4: "Penalización", 5: "Entrada a boxes"}
+    event_audios = session.get("event_audios", {})
+
+    for i, ev in enumerate(events):
+        lap = ev.get("lap", "")
+        ts = ev.get("timestamp", 0)
+        minutes, secs = divmod(int(ts), 60)
+        hours, minutes = divmod(minutes, 60)
+        ts_str = f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        etype = type_labels.get(ev.get("event_type", 0), f"Tipo {ev.get('event_type', '?')}")
+        ws.append([lap, ts_str, etype, ev.get("summary", ""), ev.get("description", ""), event_audios.get(str(i), "")])
+
+    # Write intro as first row if present
+    intro = session.get("intro_text", "")
+    if intro:
+        ws.insert_rows(2)
+        ws.cell(row=2, column=1, value=0)
+        ws.cell(row=2, column=2, value="00:00:00")
+        ws.cell(row=2, column=3, value="Introducción")
+        ws.cell(row=2, column=5, value=intro)
+        ws.cell(row=2, column=6, value=session.get("intro_audio", ""))
+
+    import io
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    safe_name = re.sub(r'[^\w\s\-]', '', name).replace(' ', '_')
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.xlsx"'},
+    )
