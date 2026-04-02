@@ -66,16 +66,6 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
     const audioIdHint = `gen_${id}_${Date.now()}`;
     get().updateTask(id, { status: "generating", progress: null, error: null });
 
-    // Start polling progress
-    const pollInterval = setInterval(async () => {
-      try {
-        const { data } = await getProgress(audioIdHint);
-        get().updateTask(id, { progress: data });
-      } catch {
-        /* not started yet */
-      }
-    }, 1000);
-
     try {
       const req: GenerateRequest = {
         text: task.text,
@@ -83,15 +73,49 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
         audio_id_hint: audioIdHint,
         ...overrides,
       };
-      const { data } = await generateAudio(req, overrides.voice_name ? undefined : undefined);
+
+      const { data } = await generateAudio(req);
+      if (!data.success || !data.audio_id) {
+        throw new Error(data.message || "La generacion no pudo iniciarse");
+      }
+
+      const progressID = data.audio_id;
+      let completed = false;
+
+      // Wait for real completion on backend instead of marking done immediately.
+      for (let i = 0; i < 900; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        let p: ProgressInfo;
+        try {
+          const resp = await getProgress(progressID);
+          p = resp.data;
+        } catch {
+          // Keep waiting unless timeout is reached.
+          continue;
+        }
+
+        get().updateTask(id, { progress: p });
+
+        if (p.status === "done") {
+          completed = true;
+          break;
+        }
+        if (p.status === "error" || p.status === "cancelled") {
+          throw new Error(p.error || `Generacion ${p.status}`);
+        }
+      }
+
+      if (!completed) {
+        throw new Error("Timeout esperando a que finalice la generacion");
+      }
+
       get().updateTask(id, { status: "done", result: data });
     } catch (err: any) {
       get().updateTask(id, {
         status: "error",
         error: err?.response?.data?.detail || err.message || "Error",
       });
-    } finally {
-      clearInterval(pollInterval);
     }
   },
 

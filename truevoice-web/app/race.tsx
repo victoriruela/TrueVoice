@@ -39,6 +39,9 @@ export default function RaceScreen() {
   const [sessionName, setSessionName] = useState("");
   const [generatingAll, setGeneratingAll] = useState(false);
   const [genProgress, setGenProgress] = useState({ done: 0, total: 0 });
+  const [generatingIntroAudio, setGeneratingIntroAudio] = useState(false);
+  const [generatingEventText, setGeneratingEventText] = useState<Record<number, boolean>>({});
+  const [generatingEventAudio, setGeneratingEventAudio] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     store.fetchSessions();
@@ -113,6 +116,50 @@ export default function RaceScreen() {
     await store.saveSession(name);
     patchConfig({ last_race_session: name });
   }, [sessionName, store, patchConfig]);
+
+  const handleGenerateIntroAudio = useCallback(async () => {
+    if (!store.introText?.trim()) return;
+    setGeneratingIntroAudio(true);
+    try {
+      const id = await generateAudioForText(store.introText, "intro_carrera");
+      if (id) store.setIntroAudio(id);
+    } finally {
+      setGeneratingIntroAudio(false);
+    }
+  }, [store, generateAudioForText]);
+
+  const handleGenerateEventText = useCallback(
+    async (index: number) => {
+      setGeneratingEventText((s) => ({ ...s, [index]: true }));
+      try {
+        await store.generateDescriptionForEvent(index);
+      } finally {
+        setGeneratingEventText((s) => ({ ...s, [index]: false }));
+      }
+    },
+    [store],
+  );
+
+  const handleGenerateEventAudio = useCallback(
+    async (index: number) => {
+      const ev = store.events[index];
+      if (!ev) return;
+      const text = (ev.description || ev.summary || "").trim();
+      if (!text) return;
+
+      setGeneratingEventAudio((s) => ({ ...s, [index]: true }));
+      try {
+        const fname = sanitizeFilename(
+          `${ev.lap}_${formatTimestamp(ev.timestamp).replace(/:/g, "-")}_${ev.summary.slice(0, 40)}`,
+        );
+        const id = await generateAudioForText(text, fname);
+        if (id) store.setEventAudio(index, id);
+      } finally {
+        setGeneratingEventAudio((s) => ({ ...s, [index]: false }));
+      }
+    },
+    [store, generateAudioForText],
+  );
 
   return (
     <ScrollView style={shared.screen}>
@@ -203,6 +250,15 @@ export default function RaceScreen() {
             <Pressable style={[shared.button, { flex: 1 }]} onPress={store.generateIntro}>
               <Text style={shared.buttonText}>Generar intro con IA</Text>
             </Pressable>
+            <Pressable
+              style={[shared.buttonSecondary, { flex: 1 }]}
+              onPress={handleGenerateIntroAudio}
+              disabled={generatingIntroAudio || !store.introText?.trim()}
+            >
+              <Text style={[shared.buttonText, { color: colors.text }]}>
+                {generatingIntroAudio ? "Generando audio..." : "Generar audio intro"}
+              </Text>
+            </Pressable>
             {store.introAudio ? (
               <View style={{ flex: 1 }}>
                 <audio controls src={getAudioUrl(store.introAudio)} style={{ width: "100%" }} />
@@ -249,6 +305,34 @@ export default function RaceScreen() {
                 placeholder="Descripción IA..."
                 placeholderTextColor={colors.textDim}
               />
+
+              <View style={[shared.row, { flexWrap: "wrap", marginBottom: 8 }]}>
+                <Pressable
+                  style={shared.buttonSecondary}
+                  onPress={() => handleGenerateEventText(i)}
+                  disabled={!!generatingEventText[i]}
+                >
+                  <Text style={[shared.buttonText, { color: colors.text }]}>
+                    {generatingEventText[i] ? "Generando texto..." : "Generar texto"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={shared.buttonSecondary}
+                  onPress={() => handleGenerateEventAudio(i)}
+                  disabled={!!generatingEventAudio[i] || !(ev.description || ev.summary)}
+                >
+                  <Text style={[shared.buttonText, { color: colors.text }]}>
+                    {generatingEventAudio[i] ? "Generando audio..." : "Generar audio"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={shared.buttonSecondary}
+                  onPress={() => store.insertEventAfter(i)}
+                >
+                  <Text style={[shared.buttonText, { color: colors.text }]}>Insertar evento debajo</Text>
+                </Pressable>
+              </View>
+
               {store.eventAudios[String(i)] && (
                 <audio
                   controls

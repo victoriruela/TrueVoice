@@ -71,6 +71,7 @@ export interface ProgressInfo {
   total: number;
   current: number;
   status: string;
+  error?: string;
   start_time: number;
   last_update: number;
 }

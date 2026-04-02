@@ -26,10 +26,12 @@ interface RaceStore {
   parseXml: (file: File) => Promise<void>;
   generateIntro: () => Promise<void>;
   generateDescriptions: () => Promise<void>;
+  generateDescriptionForEvent: (index: number) => Promise<void>;
   updateEventDescription: (index: number, description: string) => void;
   setIntroText: (text: string) => void;
   setIntroAudio: (filename: string) => void;
   setEventAudio: (index: number, filename: string) => void;
+  insertEventAfter: (index: number) => void;
 
   fetchSessions: () => Promise<void>;
   loadSession: (name: string) => Promise<void>;
@@ -95,6 +97,28 @@ export const useRaceStore = create<RaceStore>((set, get) => ({
     }
   },
 
+  generateDescriptionForEvent: async (index) => {
+    const { events } = get();
+    if (index < 0 || index >= events.length) return;
+    const ev = events[index];
+
+    set({ loading: true, error: null });
+    try {
+      const { data } = await raceGenerateDescriptions([ev]);
+      const generated = data.events?.[0];
+      if (!generated) return;
+      set((s) => ({
+        events: s.events.map((item, i) =>
+          i === index ? { ...item, description: generated.description || item.description } : item,
+        ),
+      }));
+    } catch (err: any) {
+      set({ error: err?.response?.data?.detail || "Error generating event description" });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
   updateEventDescription: (index, description) => {
     set((s) => ({
       events: s.events.map((e, i) => (i === index ? { ...e, description } : e)),
@@ -107,6 +131,42 @@ export const useRaceStore = create<RaceStore>((set, get) => ({
     set((s) => ({
       eventAudios: { ...s.eventAudios, [String(index)]: filename },
     }));
+  },
+
+  insertEventAfter: (index) => {
+    set((s) => {
+      if (index < 0 || index >= s.events.length) return s;
+
+      const curr = s.events[index];
+      const next = s.events[index + 1];
+      const midTimestamp = next
+        ? Math.max(curr.timestamp, Math.floor((curr.timestamp + next.timestamp) / 2))
+        : curr.timestamp + 3;
+
+      const newEvent: RaceEventData = {
+        lap: next ? curr.lap : curr.lap,
+        timestamp: midTimestamp,
+        event_type: 1,
+        summary: "Evento manual",
+        description: "",
+      };
+
+      const newEvents = [...s.events];
+      newEvents.splice(index + 1, 0, newEvent);
+
+      const newEventAudios: Record<string, string> = {};
+      Object.entries(s.eventAudios).forEach(([k, v]) => {
+        const oldIdx = Number(k);
+        const newIdx = oldIdx > index ? oldIdx + 1 : oldIdx;
+        newEventAudios[String(newIdx)] = v;
+      });
+
+      return {
+        ...s,
+        events: newEvents,
+        eventAudios: newEventAudios,
+      };
+    });
   },
 
   fetchSessions: async () => {
