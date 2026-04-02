@@ -1,20 +1,110 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from "react";
+import { StatusBar } from "expo-status-bar";
+import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import GenerateScreen from "./app/index";
+import RaceScreen from "./app/race";
+import OutputsScreen from "./app/outputs";
+import VoicesScreen from "./app/voices";
+import SettingsScreen from "./app/settings";
+import { cleanupTemp } from "./src/api";
+import { useConfigStore } from "./src/stores/useConfigStore";
+import { colors } from "./src/theme";
 
-export default function App() {
-  return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
-  );
+type TabKey = "generate" | "race" | "outputs" | "voices" | "settings";
+
+const TABS: Array<{ key: TabKey; title: string }> = [
+  { key: "generate", title: "Generar" },
+  { key: "race", title: "Carrera" },
+  { key: "outputs", title: "Audios" },
+  { key: "voices", title: "Voces" },
+  { key: "settings", title: "Config" },
+];
+
+function ScreenContent({ tab }: { tab: TabKey }) {
+  switch (tab) {
+    case "race":
+      return <RaceScreen />;
+    case "outputs":
+      return <OutputsScreen />;
+    case "voices":
+      return <VoicesScreen />;
+    case "settings":
+      return <SettingsScreen />;
+    case "generate":
+    default:
+      return <GenerateScreen />;
+  }
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+export default function App() {
+  const fetchConfig = useConfigStore((s) => s.fetch);
+  const [tab, setTab] = useState<TabKey>("generate");
+
+  useEffect(() => {
+    fetchConfig();
+    cleanupTemp().catch(() => {});
+  }, [fetchConfig]);
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <StatusBar style="light" />
+      <View
+        style={{
+          backgroundColor: colors.surface,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          paddingHorizontal: 16,
+          paddingTop: 16,
+          paddingBottom: 12,
+        }}
+      >
+        <Text style={{ color: colors.text, fontSize: 22, fontWeight: "700" }}>
+          TrueVoice
+        </Text>
+        <Text style={{ color: colors.textDim, marginTop: 4 }}>
+          Sintesis de voz, gestion de voces y narracion de carrera
+        </Text>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          gap: 8,
+          backgroundColor: colors.surface,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+        }}
+        style={{ flexGrow: 0 }}
+      >
+        {TABS.map((item) => {
+          const active = item.key === tab;
+          return (
+            <Pressable
+              key={item.key}
+              onPress={() => setTab(item.key)}
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                borderRadius: 999,
+                backgroundColor: active ? colors.primary : colors.surfaceLight,
+                borderWidth: 1,
+                borderColor: active ? colors.primary : colors.border,
+              }}
+            >
+              <Text style={{ color: active ? "#ffffff" : colors.text, fontWeight: "600" }}>
+                {item.title}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <View style={{ flex: 1 }}>
+        <ScreenContent tab={tab} />
+      </View>
+    </SafeAreaView>
+  );
+}
