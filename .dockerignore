@@ -1,0 +1,52 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env/
+
+# Development tools
+.git/
+.gitignore
+.github/
+*.md
+!VibeVoice/README.md
+
+# IDE & OS files
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Auto-generated files
+docker-compose.override.yml
+
+# Existing outputs (rebuild from scratch in container)
+api_outputs/
+temp_outputs/
+
+# Large binary / model files that should be downloaded at runtime
+*.pt
+*.bin
+*.safetensors
+
+# Installer / launcher scripts (not needed inside containers)
+installer.py
+launcher.py
+ejemplo_prompt.txt
+
+# Jupyter notebooks
+*.ipynb
+
+# Logs
+*.log

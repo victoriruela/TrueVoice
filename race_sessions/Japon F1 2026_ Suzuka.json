@@ -1,0 +1,1094 @@
+{
+  "intro_text": "¡Muy buenas tardes a todos los apasionados del motor! Bienvenidos al legendario trazado de Suzuka para este emocionante Gran Premio de Japón dos mil veintiséis. Nos encontramos ante una prueba de fuego de cinco mil ochocientos veinte metros por vuelta, donde los diecisiete pilotos en pista deberán completar un total de treinta y nueve vueltas para alcanzar la gloria. La parrilla está lista y los corazones laten a mil por hora. En la posición número uno sale jesusmolero, que ha configurado el coche de una forma tan agresiva que sospechamos que ha sustituido el motor por un reactor nuclear; ¡esperemos que no despegue antes de llegar a la primera curva! En el puesto número dos tenemos a erik merino, quien conduce con tanta precisión que dicen que es capaz de peinarse usando el retrovisor mientras traza las eses de Suzuka a fondo sin despeinarse. Y completando este trío de ases en la posición número tres está JuCaGi, un piloto tan rápido que se rumorea que llega a la línea de meta antes incluso de que le den la señal de salida. Tras ellos, el resto de la formación se sitúa de la siguiente manera: en la posición número cuatro, Mig Santos. En la cinco, Antonio Mir. En la seis, Mario Perez. En la siete, Baldani. En la ocho, Mulder. En la nueve, Conan. En la diez, Adan. En la once, JcarresT. En la doce, Fabio Bacherotti. En la trece, Aron. En la catorce, Carlos Menendez. En la quince, Legion. En la dieciséis, Alex Borbones. Y cerrando la fila en la posición número diecisiete, Leva. ¡Los motores rugen, los semáforos se encienden y esto va a comenzar!",
+  "intro_audio": "",
+  "header": {
+    "track_event": "Japon F1 2026, Suzuka",
+    "track_length": 5819.8,
+    "race_laps": 39,
+    "num_drivers": 17,
+    "grid_order": [
+      "jesusmolero",
+      "erik merino",
+      "JuCaGi",
+      "Mig Santos",
+      "Antonio Mir",
+      "Mario Perez",
+      "Baldani",
+      "Mulder",
+      "Conan",
+      "Adan",
+      "JcarresT",
+      "Fabio Bacherotti",
+      "Aron",
+      "Carlos Menendez",
+      "Legion",
+      "Alex Borbones",
+      "Leva"
+    ],
+    "intro_text": "¡Muy buenas tardes a todos los apasionados del motor! Bienvenidos al legendario trazado de Suzuka para este emocionante Gran Premio de Japón dos mil veintiséis. Nos encontramos ante una prueba de fuego de cinco mil ochocientos veinte metros por vuelta, donde los diecisiete pilotos en pista deberán completar un total de treinta y nueve vueltas para alcanzar la gloria. La parrilla está lista y los corazones laten a mil por hora. En la posición número uno sale jesusmolero, que ha configurado el coche de una forma tan agresiva que sospechamos que ha sustituido el motor por un reactor nuclear; ¡esperemos que no despegue antes de llegar a la primera curva! En el puesto número dos tenemos a erik merino, quien conduce con tanta precisión que dicen que es capaz de peinarse usando el retrovisor mientras traza las eses de Suzuka a fondo sin despeinarse. Y completando este trío de ases en la posición número tres está JuCaGi, un piloto tan rápido que se rumorea que llega a la línea de meta antes incluso de que le den la señal de salida. Tras ellos, el resto de la formación se sitúa de la siguiente manera: en la posición número cuatro, Mig Santos. En la cinco, Antonio Mir. En la seis, Mario Perez. En la siete, Baldani. En la ocho, Mulder. En la nueve, Conan. En la diez, Adan. En la once, JcarresT. En la doce, Fabio Bacherotti. En la trece, Aron. En la catorce, Carlos Menendez. En la quince, Legion. En la dieciséis, Alex Borbones. Y cerrando la fila en la posición número diecisiete, Leva. ¡Los motores rugen, los semáforos se encienden y esto va a comenzar!"
+  },
+  "events": [
+    {
+      "lap": 0,
+      "timestamp": 234.5,
+      "event_type": 2,
+      "summary": "erik merino choca con Mig Santos",
+      "description": "¡Erik Merino choca violentamente con Mig Santos en la vuelta cero provocando un estallido de drama nada más comenzar este espectacular Gran Premio!"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Baldani",
+      "description": "Alex Borbones adelanta a Baldani\n\n"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "JcarresT adelanta a Baldani",
+      "description": "JcarresT adelanta a Baldani"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Adan adelanta a Baldani",
+      "description": "¡Adan devora el asfalto y adelanta a Baldani con una agresividad asombrosa en esta vuelta uno de auténtico infarto!"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Mulder adelanta a Baldani",
+      "description": "Mulder adelanta a Baldani"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Baldani adelanta a Mig Santos",
+      "description": "Baldani adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Fabio Bacherotti adelanta a Baldani",
+      "description": "Fabio Bacherotti adelanta a Baldani"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Mario Perez adelanta a erik merino",
+      "description": "Mario Perez adelanta a erik merino"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Antonio Mir adelanta a erik merino",
+      "description": "Antonio Mir adelanta a erik merino"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Mario Perez adelanta a Mig Santos",
+      "description": "Mario Perez adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Conan",
+      "description": "Alex Borbones adelanta a Conan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Carlos Menendez",
+      "description": "Alex Borbones adelanta a Carlos Menendez"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a JcarresT",
+      "description": "Alex Borbones adelanta a JcarresT"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Adan",
+      "description": "Alex Borbones adelanta a Adan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Aron",
+      "description": "Alex Borbones adelanta a Aron"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Mig Santos",
+      "description": "Alex Borbones adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Fabio Bacherotti",
+      "description": "Alex Borbones adelanta a Fabio Bacherotti"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Legion",
+      "description": "Alex Borbones adelanta a Legion"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Carlos Menendez adelanta a Conan",
+      "description": "Carlos Menendez adelanta a Conan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "JcarresT adelanta a Conan",
+      "description": "JcarresT adelanta a Conan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Adan adelanta a Conan",
+      "description": "Adan adelanta a Conan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Leva adelanta a Conan",
+      "description": "Leva adelanta a Conan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Aron adelanta a Conan",
+      "description": "Aron adelanta a Conan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Fabio Bacherotti adelanta a Conan",
+      "description": "Fabio Bacherotti adelanta a Conan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Legion adelanta a Conan",
+      "description": "Legion adelanta a Conan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Legion adelanta a Carlos Menendez",
+      "description": "Legion adelanta a Carlos Menendez"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "JcarresT adelanta a Adan",
+      "description": "JcarresT adelanta a Adan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "JcarresT adelanta a Mig Santos",
+      "description": "JcarresT adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Adan adelanta a Mig Santos",
+      "description": "Adan adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Fabio Bacherotti adelanta a Adan",
+      "description": "Fabio Bacherotti adelanta a Adan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Antonio Mir adelanta a Mig Santos",
+      "description": "Antonio Mir adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Mulder adelanta a Mig Santos",
+      "description": "Mulder adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Aron adelanta a Mig Santos",
+      "description": "Aron adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Legion adelanta a Aron",
+      "description": "Legion adelanta a Aron"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Fabio Bacherotti adelanta a Mig Santos",
+      "description": "Fabio Bacherotti adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.6901,
+      "event_type": 1,
+      "summary": "Legion adelanta a Mig Santos",
+      "description": "Legion adelanta a Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 239.3,
+      "event_type": 2,
+      "summary": "Mig Santos choca con Conan",
+      "description": "Mig Santos choca con Conan"
+    },
+    {
+      "lap": 1,
+      "timestamp": 239.3,
+      "event_type": 3,
+      "summary": "Conan ha chocado contra el muro",
+      "description": "Conan ha chocado contra el muro"
+    },
+    {
+      "lap": 1,
+      "timestamp": 239.4,
+      "event_type": 3,
+      "summary": "Mig Santos ha chocado contra el muro",
+      "description": "Mig Santos ha chocado contra el muro"
+    },
+    {
+      "lap": 1,
+      "timestamp": 275.2,
+      "event_type": 3,
+      "summary": "JuCaGi ha chocado contra el muro",
+      "description": "JuCaGi ha chocado contra el muro"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.7,
+      "event_type": 4,
+      "summary": "STOP and GO recibida para Mig Santos",
+      "description": "STOP and GO recibida para Mig Santos"
+    },
+    {
+      "lap": 1,
+      "timestamp": 234.7,
+      "event_type": 4,
+      "summary": "Drive Through recibida para erik merino",
+      "description": "Drive Through recibida para erik merino"
+    },
+    {
+      "lap": 2,
+      "timestamp": 341.7074,
+      "event_type": 1,
+      "summary": "Baldani adelanta a Adan",
+      "description": "Baldani adelanta a Adan"
+    },
+    {
+      "lap": 2,
+      "timestamp": 341.7074,
+      "event_type": 1,
+      "summary": "Leva adelanta a Carlos Menendez",
+      "description": "Leva adelanta a Carlos Menendez"
+    },
+    {
+      "lap": 2,
+      "timestamp": 341.7074,
+      "event_type": 1,
+      "summary": "Carlos Menendez adelanta a Mig Santos",
+      "description": "Carlos Menendez adelanta a Mig Santos"
+    },
+    {
+      "lap": 2,
+      "timestamp": 341.7074,
+      "event_type": 1,
+      "summary": "Fabio Bacherotti adelanta a JcarresT",
+      "description": "Fabio Bacherotti adelanta a JcarresT"
+    },
+    {
+      "lap": 2,
+      "timestamp": 341.7074,
+      "event_type": 1,
+      "summary": "Leva adelanta a Mig Santos",
+      "description": "Leva adelanta a Mig Santos"
+    },
+    {
+      "lap": 2,
+      "timestamp": 360.9345,
+      "event_type": 5,
+      "summary": "Mig Santos entra en boxes",
+      "description": "Mig Santos entra en boxes"
+    },
+    {
+      "lap": 2,
+      "timestamp": 369.9413,
+      "event_type": 5,
+      "summary": "Carlos Menendez entra en boxes",
+      "description": "Carlos Menendez entra en boxes"
+    },
+    {
+      "lap": 2,
+      "timestamp": 391.1222,
+      "event_type": 5,
+      "summary": "Conan entra en boxes",
+      "description": "Conan entra en boxes"
+    },
+    {
+      "lap": 3,
+      "timestamp": 447.1174,
+      "event_type": 1,
+      "summary": "Baldani adelanta a JcarresT",
+      "description": "Baldani adelanta a JcarresT"
+    },
+    {
+      "lap": 3,
+      "timestamp": 447.1174,
+      "event_type": 1,
+      "summary": "Baldani adelanta a Fabio Bacherotti",
+      "description": "Baldani adelanta a Fabio Bacherotti"
+    },
+    {
+      "lap": 3,
+      "timestamp": 447.1174,
+      "event_type": 1,
+      "summary": "Mulder adelanta a erik merino",
+      "description": "Mulder adelanta a erik merino"
+    },
+    {
+      "lap": 3,
+      "timestamp": 447.1174,
+      "event_type": 1,
+      "summary": "JcarresT adelanta a Fabio Bacherotti",
+      "description": "JcarresT adelanta a Fabio Bacherotti"
+    },
+    {
+      "lap": 4,
+      "timestamp": 551.5959,
+      "event_type": 1,
+      "summary": "Baldani adelanta a erik merino",
+      "description": "Baldani adelanta a erik merino"
+    },
+    {
+      "lap": 4,
+      "timestamp": 551.5959,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a erik merino",
+      "description": "Alex Borbones adelanta a erik merino"
+    },
+    {
+      "lap": 4,
+      "timestamp": 551.5959,
+      "event_type": 1,
+      "summary": "Carlos Menendez adelanta a Leva",
+      "description": "Carlos Menendez adelanta a Leva"
+    },
+    {
+      "lap": 4,
+      "timestamp": 551.5959,
+      "event_type": 1,
+      "summary": "Adan adelanta a JcarresT",
+      "description": "Adan adelanta a JcarresT"
+    },
+    {
+      "lap": 4,
+      "timestamp": 551.5959,
+      "event_type": 1,
+      "summary": "Aron adelanta a JcarresT",
+      "description": "Aron adelanta a JcarresT"
+    },
+    {
+      "lap": 4,
+      "timestamp": 551.5959,
+      "event_type": 1,
+      "summary": "Fabio Bacherotti adelanta a JcarresT",
+      "description": "Fabio Bacherotti adelanta a JcarresT"
+    },
+    {
+      "lap": 4,
+      "timestamp": 551.5959,
+      "event_type": 1,
+      "summary": "Legion adelanta a JcarresT",
+      "description": "Legion adelanta a JcarresT"
+    },
+    {
+      "lap": 4,
+      "timestamp": 586.1,
+      "event_type": 3,
+      "summary": "JcarresT ha chocado contra el muro",
+      "description": "JcarresT ha chocado contra el muro"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Baldani adelanta a Alex Borbones",
+      "description": "Baldani adelanta a Alex Borbones"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Adan adelanta a erik merino",
+      "description": "Adan adelanta a erik merino"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Fabio Bacherotti adelanta a erik merino",
+      "description": "Fabio Bacherotti adelanta a erik merino"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Adan adelanta a Alex Borbones",
+      "description": "Adan adelanta a Alex Borbones"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Fabio Bacherotti adelanta a Alex Borbones",
+      "description": "Fabio Bacherotti adelanta a Alex Borbones"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Conan adelanta a JcarresT",
+      "description": "Conan adelanta a JcarresT"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Conan adelanta a Mig Santos",
+      "description": "Conan adelanta a Mig Santos"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Carlos Menendez adelanta a JcarresT",
+      "description": "Carlos Menendez adelanta a JcarresT"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Leva adelanta a JcarresT",
+      "description": "Leva adelanta a JcarresT"
+    },
+    {
+      "lap": 5,
+      "timestamp": 656.5654,
+      "event_type": 1,
+      "summary": "Mig Santos adelanta a JcarresT",
+      "description": "Mig Santos adelanta a JcarresT"
+    },
+    {
+      "lap": 5,
+      "timestamp": 673.7828,
+      "event_type": 5,
+      "summary": "erik merino entra en boxes",
+      "description": "erik merino entra en boxes"
+    },
+    {
+      "lap": 5,
+      "timestamp": 713.6269,
+      "event_type": 5,
+      "summary": "JcarresT entra en boxes",
+      "description": "JcarresT entra en boxes"
+    },
+    {
+      "lap": 6,
+      "timestamp": 762.3842,
+      "event_type": 1,
+      "summary": "erik merino adelanta a Alex Borbones",
+      "description": "erik merino adelanta a Alex Borbones"
+    },
+    {
+      "lap": 6,
+      "timestamp": 762.3842,
+      "event_type": 1,
+      "summary": "Aron adelanta a Legion",
+      "description": "Aron adelanta a Legion"
+    },
+    {
+      "lap": 6,
+      "timestamp": 763.7,
+      "event_type": 3,
+      "summary": "JcarresT ha chocado contra el muro",
+      "description": "JcarresT ha chocado contra el muro"
+    },
+    {
+      "lap": 6,
+      "timestamp": 766.6,
+      "event_type": 3,
+      "summary": "Mig Santos ha chocado contra el muro",
+      "description": "Mig Santos ha chocado contra el muro"
+    },
+    {
+      "lap": 7,
+      "timestamp": 869.2425,
+      "event_type": 1,
+      "summary": "erik merino adelanta a Adan",
+      "description": "erik merino adelanta a Adan"
+    },
+    {
+      "lap": 7,
+      "timestamp": 869.2425,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Adan",
+      "description": "Alex Borbones adelanta a Adan"
+    },
+    {
+      "lap": 7,
+      "timestamp": 869.2425,
+      "event_type": 1,
+      "summary": "Conan adelanta a Leva",
+      "description": "Conan adelanta a Leva"
+    },
+    {
+      "lap": 7,
+      "timestamp": 869.2425,
+      "event_type": 1,
+      "summary": "Mig Santos adelanta a Leva",
+      "description": "Mig Santos adelanta a Leva"
+    },
+    {
+      "lap": 7,
+      "timestamp": 873.1,
+      "event_type": 3,
+      "summary": "Leva ha chocado contra el muro",
+      "description": "Leva ha chocado contra el muro"
+    },
+    {
+      "lap": 7,
+      "timestamp": 947.4,
+      "event_type": 4,
+      "summary": "STOP and GO recibida para JcarresT",
+      "description": "STOP and GO recibida para JcarresT"
+    },
+    {
+      "lap": 7,
+      "timestamp": 919.1217,
+      "event_type": 5,
+      "summary": "JcarresT entra en boxes",
+      "description": "JcarresT entra en boxes"
+    },
+    {
+      "lap": 7,
+      "timestamp": 971.0641,
+      "event_type": 5,
+      "summary": "Leva entra en boxes",
+      "description": "Leva entra en boxes"
+    },
+    {
+      "lap": 8,
+      "timestamp": 976.2791,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a erik merino",
+      "description": "Alex Borbones adelanta a erik merino"
+    },
+    {
+      "lap": 8,
+      "timestamp": 976.2791,
+      "event_type": 1,
+      "summary": "Adan adelanta a erik merino",
+      "description": "Adan adelanta a erik merino"
+    },
+    {
+      "lap": 9,
+      "timestamp": 1152.1119,
+      "event_type": 5,
+      "summary": "JcarresT entra en boxes",
+      "description": "JcarresT entra en boxes"
+    },
+    {
+      "lap": 10,
+      "timestamp": 1190.1328,
+      "event_type": 1,
+      "summary": "Baldani adelanta a Mulder",
+      "description": "Baldani adelanta a Mulder"
+    },
+    {
+      "lap": 10,
+      "timestamp": 1190.1328,
+      "event_type": 1,
+      "summary": "Carlos Menendez adelanta a Legion",
+      "description": "Carlos Menendez adelanta a Legion"
+    },
+    {
+      "lap": 10,
+      "timestamp": 1195.5,
+      "event_type": 4,
+      "summary": "STOP and GO recibida para JcarresT",
+      "description": "STOP and GO recibida para JcarresT"
+    },
+    {
+      "lap": 11,
+      "timestamp": 1296.1764,
+      "event_type": 1,
+      "summary": "Baldani adelanta a Mario Perez",
+      "description": "Baldani adelanta a Mario Perez"
+    },
+    {
+      "lap": 11,
+      "timestamp": 1296.1764,
+      "event_type": 1,
+      "summary": "erik merino adelanta a Adan",
+      "description": "erik merino adelanta a Adan"
+    },
+    {
+      "lap": 11,
+      "timestamp": 1329.9507,
+      "event_type": 5,
+      "summary": "JcarresT entra en boxes",
+      "description": "JcarresT entra en boxes"
+    },
+    {
+      "lap": 11,
+      "timestamp": 1386.5811,
+      "event_type": 5,
+      "summary": "Legion entra en boxes",
+      "description": "Legion entra en boxes"
+    },
+    {
+      "lap": 12,
+      "timestamp": 1402.4366,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Fabio Bacherotti",
+      "description": "Alex Borbones adelanta a Fabio Bacherotti"
+    },
+    {
+      "lap": 12,
+      "timestamp": 1509.7,
+      "event_type": 3,
+      "summary": "Mig Santos ha chocado contra el muro",
+      "description": "Mig Santos ha chocado contra el muro"
+    },
+    {
+      "lap": 13,
+      "timestamp": 1509.9479,
+      "event_type": 1,
+      "summary": "Conan adelanta a Legion",
+      "description": "Conan adelanta a Legion"
+    },
+    {
+      "lap": 14,
+      "timestamp": 1616.6942,
+      "event_type": 1,
+      "summary": "Legion adelanta a Conan",
+      "description": "Legion adelanta a Conan"
+    },
+    {
+      "lap": 15,
+      "timestamp": 1724.0538,
+      "event_type": 1,
+      "summary": "erik merino adelanta a Fabio Bacherotti",
+      "description": "erik merino adelanta a Fabio Bacherotti"
+    },
+    {
+      "lap": 15,
+      "timestamp": 1724.0538,
+      "event_type": 1,
+      "summary": "Leva adelanta a Conan",
+      "description": "Leva adelanta a Conan"
+    },
+    {
+      "lap": 15,
+      "timestamp": 1764.9,
+      "event_type": 3,
+      "summary": "Conan ha chocado contra el muro",
+      "description": "Conan ha chocado contra el muro"
+    },
+    {
+      "lap": 16,
+      "timestamp": 1888.0,
+      "event_type": 3,
+      "summary": "Legion ha chocado contra el muro",
+      "description": "Legion ha chocado contra el muro"
+    },
+    {
+      "lap": 16,
+      "timestamp": 1880.9014,
+      "event_type": 5,
+      "summary": "Conan entra en boxes",
+      "description": "Conan entra en boxes"
+    },
+    {
+      "lap": 17,
+      "timestamp": 1939.53,
+      "event_type": 1,
+      "summary": "Fabio Bacherotti adelanta a erik merino",
+      "description": "Fabio Bacherotti adelanta a erik merino"
+    },
+    {
+      "lap": 17,
+      "timestamp": 1939.53,
+      "event_type": 1,
+      "summary": "Mulder adelanta a Mario Perez",
+      "description": "Mulder adelanta a Mario Perez"
+    },
+    {
+      "lap": 17,
+      "timestamp": 1939.53,
+      "event_type": 1,
+      "summary": "Conan adelanta a Leva",
+      "description": "Conan adelanta a Leva"
+    },
+    {
+      "lap": 18,
+      "timestamp": 2046.7714,
+      "event_type": 1,
+      "summary": "erik merino adelanta a Fabio Bacherotti",
+      "description": "erik merino adelanta a Fabio Bacherotti"
+    },
+    {
+      "lap": 18,
+      "timestamp": 2046.7714,
+      "event_type": 1,
+      "summary": "Carlos Menendez adelanta a Aron",
+      "description": "Carlos Menendez adelanta a Aron"
+    },
+    {
+      "lap": 18,
+      "timestamp": 2046.7714,
+      "event_type": 1,
+      "summary": "Adan adelanta a Fabio Bacherotti",
+      "description": "Adan adelanta a Fabio Bacherotti"
+    },
+    {
+      "lap": 19,
+      "timestamp": 2154.6831,
+      "event_type": 1,
+      "summary": "Baldani adelanta a Antonio Mir",
+      "description": "Baldani adelanta a Antonio Mir"
+    },
+    {
+      "lap": 19,
+      "timestamp": 2154.6831,
+      "event_type": 1,
+      "summary": "Mulder adelanta a Antonio Mir",
+      "description": "Mulder adelanta a Antonio Mir"
+    },
+    {
+      "lap": 19,
+      "timestamp": 2174.814,
+      "event_type": 5,
+      "summary": "Antonio Mir entra en boxes",
+      "description": "Antonio Mir entra en boxes"
+    },
+    {
+      "lap": 19,
+      "timestamp": 2263.2002,
+      "event_type": 5,
+      "summary": "Aron entra en boxes",
+      "description": "Aron entra en boxes"
+    },
+    {
+      "lap": 20,
+      "timestamp": 2263.6731,
+      "event_type": 1,
+      "summary": "Mario Perez adelanta a Mulder",
+      "description": "Mario Perez adelanta a Mulder"
+    },
+    {
+      "lap": 20,
+      "timestamp": 2263.6731,
+      "event_type": 1,
+      "summary": "Antonio Mir adelanta a Mulder",
+      "description": "Antonio Mir adelanta a Mulder"
+    },
+    {
+      "lap": 20,
+      "timestamp": 2271.2686,
+      "event_type": 5,
+      "summary": "Leva entra en boxes",
+      "description": "Leva entra en boxes"
+    },
+    {
+      "lap": 20,
+      "timestamp": 2299.3379,
+      "event_type": 5,
+      "summary": "Mulder entra en boxes",
+      "description": "Mulder entra en boxes"
+    },
+    {
+      "lap": 20,
+      "timestamp": 2368.7498,
+      "event_type": 5,
+      "summary": "Carlos Menendez entra en boxes",
+      "description": "Carlos Menendez entra en boxes"
+    },
+    {
+      "lap": 21,
+      "timestamp": 2370.53,
+      "event_type": 1,
+      "summary": "erik merino adelanta a Alex Borbones",
+      "description": "erik merino adelanta a Alex Borbones"
+    },
+    {
+      "lap": 21,
+      "timestamp": 2370.53,
+      "event_type": 1,
+      "summary": "Adan adelanta a Alex Borbones",
+      "description": "Adan adelanta a Alex Borbones"
+    },
+    {
+      "lap": 21,
+      "timestamp": 2435.2524,
+      "event_type": 5,
+      "summary": "Alex Borbones entra en boxes",
+      "description": "Alex Borbones entra en boxes"
+    },
+    {
+      "lap": 22,
+      "timestamp": 2481.0681,
+      "event_type": 1,
+      "summary": "Antonio Mir adelanta a Baldani",
+      "description": "Antonio Mir adelanta a Baldani"
+    },
+    {
+      "lap": 22,
+      "timestamp": 2481.0681,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Adan",
+      "description": "Alex Borbones adelanta a Adan"
+    },
+    {
+      "lap": 22,
+      "timestamp": 2481.0681,
+      "event_type": 5,
+      "summary": "jesusmolero entra en boxes",
+      "description": "jesusmolero entra en boxes"
+    },
+    {
+      "lap": 22,
+      "timestamp": 2508.0767,
+      "event_type": 5,
+      "summary": "Baldani entra en boxes",
+      "description": "Baldani entra en boxes"
+    },
+    {
+      "lap": 23,
+      "timestamp": 2608.5657,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a erik merino",
+      "description": "Alex Borbones adelanta a erik merino"
+    },
+    {
+      "lap": 24,
+      "timestamp": 2712.7615,
+      "event_type": 1,
+      "summary": "Mulder adelanta a Mario Perez",
+      "description": "Mulder adelanta a Mario Perez"
+    },
+    {
+      "lap": 25,
+      "timestamp": 2889.2,
+      "event_type": 3,
+      "summary": "Aron ha chocado contra el muro",
+      "description": "Aron ha chocado contra el muro"
+    },
+    {
+      "lap": 25,
+      "timestamp": 2884.1677,
+      "event_type": 5,
+      "summary": "Leva entra en boxes",
+      "description": "Leva entra en boxes"
+    },
+    {
+      "lap": 25,
+      "timestamp": 2921.2517,
+      "event_type": 5,
+      "summary": "Conan entra en boxes",
+      "description": "Conan entra en boxes"
+    },
+    {
+      "lap": 26,
+      "timestamp": 2966.8479,
+      "event_type": 5,
+      "summary": "Aron entra en boxes",
+      "description": "Aron entra en boxes"
+    },
+    {
+      "lap": 27,
+      "timestamp": 3120.8687,
+      "event_type": 5,
+      "summary": "JcarresT entra en boxes",
+      "description": "JcarresT entra en boxes"
+    },
+    {
+      "lap": 33,
+      "timestamp": 3645.9023,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Mario Perez",
+      "description": "Alex Borbones adelanta a Mario Perez"
+    },
+    {
+      "lap": 33,
+      "timestamp": 3645.9023,
+      "event_type": 1,
+      "summary": "JcarresT adelanta a Leva",
+      "description": "JcarresT adelanta a Leva"
+    },
+    {
+      "lap": 34,
+      "timestamp": 3747.9856,
+      "event_type": 1,
+      "summary": "erik merino adelanta a Mario Perez",
+      "description": "erik merino adelanta a Mario Perez"
+    },
+    {
+      "lap": 34,
+      "timestamp": 3820.4697,
+      "event_type": 5,
+      "summary": "Mario Perez entra en boxes",
+      "description": "Mario Perez entra en boxes"
+    },
+    {
+      "lap": 35,
+      "timestamp": 3852.4421,
+      "event_type": 1,
+      "summary": "Baldani adelanta a Antonio Mir",
+      "description": "Baldani adelanta a Antonio Mir"
+    },
+    {
+      "lap": 35,
+      "timestamp": 3852.4421,
+      "event_type": 1,
+      "summary": "Mulder adelanta a Antonio Mir",
+      "description": "Mulder adelanta a Antonio Mir"
+    },
+    {
+      "lap": 35,
+      "timestamp": 3877.7,
+      "event_type": 3,
+      "summary": "Antonio Mir ha chocado contra el muro",
+      "description": "Antonio Mir ha chocado contra el muro"
+    },
+    {
+      "lap": 36,
+      "timestamp": 3954.5667,
+      "event_type": 1,
+      "summary": "erik merino adelanta a Antonio Mir",
+      "description": "erik merino adelanta a Antonio Mir"
+    },
+    {
+      "lap": 36,
+      "timestamp": 3954.5667,
+      "event_type": 1,
+      "summary": "Mario Perez adelanta a Antonio Mir",
+      "description": "Mario Perez adelanta a Antonio Mir"
+    },
+    {
+      "lap": 36,
+      "timestamp": 3954.5667,
+      "event_type": 1,
+      "summary": "Alex Borbones adelanta a Antonio Mir",
+      "description": "Alex Borbones adelanta a Antonio Mir"
+    },
+    {
+      "lap": 36,
+      "timestamp": 4054.1,
+      "event_type": 3,
+      "summary": "Leva ha chocado contra el muro",
+      "description": "Leva ha chocado contra el muro"
+    },
+    {
+      "lap": 36,
+      "timestamp": 4009.0857,
+      "event_type": 5,
+      "summary": "Antonio Mir entra en boxes",
+      "description": "Antonio Mir entra en boxes"
+    },
+    {
+      "lap": 37,
+      "timestamp": 4073.2,
+      "event_type": 3,
+      "summary": "JcarresT ha chocado contra el muro",
+      "description": "JcarresT ha chocado contra el muro"
+    },
+    {
+      "lap": 37,
+      "timestamp": 4078.8,
+      "event_type": 3,
+      "summary": "Carlos Menendez ha chocado contra el muro",
+      "description": "Carlos Menendez ha chocado contra el muro"
+    },
+    {
+      "lap": 37,
+      "timestamp": 4074.5349,
+      "event_type": 5,
+      "summary": "Leva entra en boxes",
+      "description": "Leva entra en boxes"
+    },
+    {
+      "lap": 38,
+      "timestamp": 4160.9028,
+      "event_type": 1,
+      "summary": "Adan adelanta a Antonio Mir",
+      "description": "Adan adelanta a Antonio Mir"
+    },
+    {
+      "lap": 39,
+      "timestamp": 4443.5,
+      "event_type": 2,
+      "summary": "Baldani choca con Carlos Menendez",
+      "description": "Baldani choca con Carlos Menendez"
+    }
+  ],
+  "event_audios": {
+    "1": "1_00-03-54_Alex_Borbones_adelanta_a_Baldani (1).wav",
+    "2": "1_00-03-54_JcarresT_adelanta_a_Baldani (1).wav",
+    "3": "1_00-03-54_Adan_adelanta_a_Baldani.wav"
+  }
+}

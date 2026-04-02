@@ -10,18 +10,59 @@ import json
 import os
 import ctypes
 import time
-from ctypes import wintypes
+import platform
+try:
+    from ctypes import wintypes
+except (ImportError, AttributeError):
+    wintypes = None
 from pathlib import Path
 
 # ── Configuración ───────────────────────────────────────────────────────────
-API_URL = "http://localhost:8000"
-CONFIG_FILE = Path("frontend_config.json")
+API_URL = os.environ.get("API_URL", "http://localhost:8000")
+CONFIG_FILE = Path(os.environ.get("CONFIG_DIR", str(Path(__file__).parent))) / "frontend_config.json"
+IS_DOCKER = platform.system() != "Windows"
 
 def cleanup_temp_api():
     try:
         requests.post(f"{API_URL}/cleanup_temp", timeout=5)
     except:
         pass
+
+
+def reset_generation_state():
+    saved_tasks = st.session_state.config.get("generation_tasks", [])
+    if saved_tasks:
+        cleaned_tasks = []
+        for task in saved_tasks:
+            cleaned_tasks.append({
+                "text": task.get("text", ""),
+                "custom_name": task.get("custom_name", ""),
+                "id": task.get("id", int(time.time() * 1000)),
+                "status": "idle",
+                "result": None,
+            })
+        st.session_state.generation_tasks = cleaned_tasks
+    else:
+        last_text = st.session_state.config.get("last_text_input", "")
+        last_name = st.session_state.config.get("last_custom_name", "")
+        st.session_state.generation_tasks = [
+            {"text": last_text, "custom_name": last_name, "id": 0, "status": "idle", "result": None}
+        ]
+
+    st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
+    save_config(st.session_state.config)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_ollama_models(ollama_url: str):
+    try:
+        response = requests.get(f"{ollama_url.rstrip('/')}/api/tags", timeout=5)
+        response.raise_for_status()
+        models = response.json().get("models", [])
+        names = [model.get("name", "").strip() for model in models]
+        return [name for name in names if name]
+    except Exception:
+        return []
 
 def load_config():
     if CONFIG_FILE.exists():
@@ -48,8 +89,108 @@ def save_config(config):
     except Exception as e:
         print(f"Error guardando config: {e}")
 
+def container_to_windows_path(path: str) -> str:
+    """Convierte ruta de contenedor /mnt/<letra>/... a ruta Windows X:\\..."""
+    import re
+    m = re.match(r'^/mnt/([a-z])(/.*)?$', path)
+    if m:
+        letter = m.group(1).upper()
+        rest = (m.group(2) or "").replace("/", "\\")
+        return f"{letter}:{rest or chr(92)}"
+    return path
+
+
+def get_mounted_drives() -> list:
+    """Devuelve las letras de disco montadas en /mnt/ (ej. ['c','d','e'])."""
+    try:
+        return sorted([
+            e for e in os.listdir("/mnt")
+            if len(e) == 1 and e.isalpha() and os.path.isdir(f"/mnt/{e}")
+        ])
+    except OSError:
+        return ["c"]
+
+
+def folder_browser_widget(config_key: str, browse_state_key: str,
+                          extra_save: dict = None, clear_cache: bool = False):
+    """Explorador de carpetas para entorno Docker.
+    Navega el sistema de archivos del host Windows — soporta todos los discos montados."""
+    drives = get_mounted_drives()
+    DEFAULT_DRIVE = drives[0] if drives else "c"
+    DEFAULT_START = f"/mnt/{DEFAULT_DRIVE}/Users" if os.path.isdir(f"/mnt/{DEFAULT_DRIVE}/Users") else f"/mnt/{DEFAULT_DRIVE}"
+
+    current_saved = st.session_state.config.get(config_key, "")
+    if browse_state_key not in st.session_state:
+        start = current_saved if (current_saved and os.path.isdir(current_saved)) else DEFAULT_START
+        st.session_state[browse_state_key] = start
+
+    browse_path = st.session_state[browse_state_key]
+
+    if current_saved:
+        st.caption(f"\U0001f4c1 Guardado: `{container_to_windows_path(current_saved)}`")
+    st.caption(f"\U0001f4cd Navegando: `{container_to_windows_path(browse_path)}`")
+
+    # ── Selector de disco ────────────────────────────────────────
+    if len(drives) > 1:
+        drive_labels = [f"{d.upper()}:" for d in drives]
+        import re as _re
+        m = _re.match(r'^/mnt/([a-z])', browse_path)
+        current_drive = m.group(1) if m else DEFAULT_DRIVE
+        current_idx = drives.index(current_drive) if current_drive in drives else 0
+        sel_drive = st.selectbox(
+            "Disco", drive_labels, index=current_idx,
+            key=f"drive_{browse_state_key}"
+        )
+        selected_letter = sel_drive[0].lower()
+        if selected_letter != current_drive:
+            st.session_state[browse_state_key] = f"/mnt/{selected_letter}"
+            st.rerun()
+
+    col_up, col_sel = st.columns(2)
+    with col_up:
+        if st.button("\u2b06 Subir", key=f"up_{browse_state_key}", use_container_width=True):
+            parent = str(Path(browse_path).parent)
+            # No subir por encima de /mnt/<letra>
+            import re as _re2
+            if not _re2.match(r'^/mnt/[a-z]$', browse_path):
+                st.session_state[browse_state_key] = parent
+            st.rerun()
+    with col_sel:
+        if st.button("\u2705 Seleccionar", key=f"sel_{browse_state_key}",
+                     use_container_width=True, type="primary"):
+            st.session_state.config[config_key] = browse_path
+            if extra_save:
+                for k, v in extra_save.items():
+                    st.session_state.config[k] = v
+            save_config(st.session_state.config)
+            if clear_cache:
+                st.cache_data.clear()
+            st.rerun()
+
+    try:
+        entries = sorted([
+            e for e in os.listdir(browse_path)
+            if os.path.isdir(os.path.join(browse_path, e)) and not e.startswith(".")
+        ])
+        if not entries:
+            st.caption("_Carpeta vac\u00eda_")
+        else:
+            for entry in entries[:25]:
+                if st.button(f"\U0001f4c1 {entry}", key=f"nav_{browse_state_key}_{entry}",
+                             use_container_width=True):
+                    st.session_state[browse_state_key] = os.path.join(browse_path, entry)
+                    st.rerun()
+    except PermissionError:
+        st.warning("\u26a0\ufe0f Sin permisos de acceso")
+    except (FileNotFoundError, OSError):
+        st.warning("\u26a0\ufe0f Carpeta no accesible")
+        st.session_state[browse_state_key] = DEFAULT_START
+
+
 def select_folder_windows(title="Selecciona una carpeta"):
     """Abre un diálogo nativo de Windows para seleccionar una carpeta sin usar tkinter."""
+    if platform.system() != "Windows" or wintypes is None:
+        return None
     # Estructura BROWSEINFO para SHBrowseForFolderW
     class BROWSEINFO(ctypes.Structure):
         _fields_ = [
@@ -223,6 +364,7 @@ def api_post_form(endpoint: str, data: dict, files: dict):
 # Al iniciar/refrescar la página, limpiar temporales
 if "init_cleanup_done" not in st.session_state:
     cleanup_temp_api()
+    reset_generation_state()
     st.session_state.init_cleanup_done = True
 
 # No usamos caché para el healthcheck inicial
@@ -246,7 +388,14 @@ def render_sidebar(voices_data, models_data):
         st.caption(f"📁 Ruta: {custom_folder_path}")
     
     # Botón para elegir la carpeta local
-    if st.button("📂 Elegir carpeta", help="Abrir explorador de archivos para elegir otra carpeta", key="btn_choose_voices", use_container_width=True):
+    if IS_DOCKER:
+        folder_browser_widget(
+            config_key="custom_folder_path",
+            browse_state_key="browser_voices",
+            extra_save={"voice_folder_type": "Escoger carpeta local"},
+            clear_cache=True,
+        )
+    elif st.button("📂 Elegir carpeta", help="Abrir explorador de archivos para elegir otra carpeta", key="btn_choose_voices", use_container_width=True):
         new_path = select_folder_windows("Selecciona la carpeta donde están tus voces (.wav)")
         if new_path:
             st.session_state.config["custom_folder_path"] = new_path
@@ -284,7 +433,14 @@ def render_sidebar(voices_data, models_data):
     if custom_output_path:
         st.caption(f"📁 Ruta: {custom_output_path}")
     
-    if st.button("📂 Elegir carpeta", help="Elegir otra carpeta para guardar audios", key="btn_choose_out_audio", use_container_width=True):
+    if IS_DOCKER:
+        folder_browser_widget(
+            config_key="custom_output_path",
+            browse_state_key="browser_audio_out",
+            extra_save={"output_folder_type": "Escoger carpeta local"},
+            clear_cache=True,
+        )
+    elif st.button("📂 Elegir carpeta", help="Elegir otra carpeta para guardar audios", key="btn_choose_out_audio", use_container_width=True):
         new_path = select_folder_windows("Selecciona la carpeta para guardar los audios")
         if new_path:
             st.session_state.config["custom_output_path"] = new_path
@@ -302,7 +458,13 @@ def render_sidebar(voices_data, models_data):
     if custom_texts_path:
         st.caption(f"📁 Ruta: {custom_texts_path}")
     
-    if st.button("📂 Elegir carpeta", help="Elegir otra carpeta para guardar Excel", key="btn_choose_out_texts", use_container_width=True):
+    if IS_DOCKER:
+        folder_browser_widget(
+            config_key="custom_texts_path",
+            browse_state_key="browser_texts_out",
+            extra_save={"texts_folder_type": "Escoger carpeta local"},
+        )
+    elif st.button("📂 Elegir carpeta", help="Elegir otra carpeta para guardar Excel", key="btn_choose_out_texts", use_container_width=True):
         new_path = select_folder_windows("Selecciona la carpeta para guardar los archivos Excel")
         if new_path:
             st.session_state.config["custom_texts_path"] = new_path
@@ -374,6 +536,7 @@ def render_sidebar(voices_data, models_data):
     
     def on_ollama_url_change():
         st.session_state.config["ollama_url"] = st.session_state.ollama_url_input
+        fetch_ollama_models.clear()
         save_config(st.session_state.config)
 
     ollama_url = st.text_input(
@@ -384,17 +547,36 @@ def render_sidebar(voices_data, models_data):
         on_change=on_ollama_url_change
     )
 
+    detected_ollama_models = fetch_ollama_models(ollama_url)
+
     def on_ollama_model_change():
         st.session_state.config["ollama_model"] = st.session_state.ollama_model_input
         save_config(st.session_state.config)
 
-    ollama_model = st.text_input(
-        "Modelo",
-        value=st.session_state.config.get("ollama_model", "llama3.2"),
-        placeholder="llama3.2",
-        key="ollama_model_input",
-        on_change=on_ollama_model_change
-    )
+    saved_ollama_model = st.session_state.config.get("ollama_model", "llama3.2")
+    if detected_ollama_models:
+        default_ollama_idx = (
+            detected_ollama_models.index(saved_ollama_model)
+            if saved_ollama_model in detected_ollama_models else 0
+        )
+        ollama_model = st.selectbox(
+            "Modelo",
+            detected_ollama_models,
+            index=default_ollama_idx,
+            key="ollama_model_input",
+            help="Modelos detectados automáticamente en Ollama",
+            on_change=on_ollama_model_change
+        )
+        st.caption(f"{len(detected_ollama_models)} modelo(s) detectado(s) en Ollama")
+    else:
+        st.warning("No se han podido detectar modelos de Ollama en esa URL.")
+        ollama_model = st.text_input(
+            "Modelo",
+            value=saved_ollama_model,
+            placeholder="llama3.2",
+            key="ollama_model_input",
+            on_change=on_ollama_model_change
+        )
 
     # Info del preset seleccionado
     st.divider()
@@ -490,7 +672,7 @@ with tab_generate:
     st.divider()
     
     # --- Definición de función de generación ---
-    def run_generation(task_idx):
+    def run_generation(task_idx, ui_placeholder=None):
         task = st.session_state.generation_tasks[task_idx]
         if not task["text"].strip():
             st.warning(f"⚠️ El audio #{task_idx + 1} no tiene texto.")
@@ -508,82 +690,57 @@ with tab_generate:
             "disable_prefill": disable_prefill,
         }
 
-        # Usar una columna para que aparezca a la izquierda
-        c_status, _ = st.columns([2, 1])
-        with c_status:
-            with st.status(f"Generando Audio #{task_idx + 1}...", expanded=True) as status:
-                prog_bar = st.progress(0)
-                status_txt = st.empty()
-                time_txt = st.empty()
-            
-            endpoint = "/generate"
-            if voice_directory:
-                endpoint += f"?voice_directory={requests.utils.quote(voice_directory)}"
+        timer_placeholder = ui_placeholder if ui_placeholder is not None else st.empty()
 
-            try:
-                import threading
-                response_container = []
-                temp_id = task["custom_name"].strip() if task["custom_name"].strip() else f"gen_{task['id']}_{int(time.time() * 1000)}"
-                payload["audio_id_hint"] = temp_id 
-                
-                def make_request():
-                    try:
-                        resp = requests.post(f"{API_URL}{endpoint}", json=payload, timeout=600)
-                        response_container.append(resp)
-                    except Exception as ex:
-                        response_container.append(ex)
+        endpoint = "/generate"
+        if voice_directory:
+            endpoint += f"?voice_directory={requests.utils.quote(voice_directory)}"
 
-                thread = threading.Thread(target=make_request)
-                thread.start()
+        try:
+            import threading
+            response_container = []
+            temp_id = task["custom_name"].strip() if task["custom_name"].strip() else f"gen_{task['id']}_{int(time.time() * 1000)}"
+            payload["audio_id_hint"] = temp_id
 
-                start_time = time.time()
-                last_progress_update = start_time
-                
-                while thread.is_alive():
-                    try:
-                        p_resp = requests.get(f"{API_URL}/progress/{temp_id}", timeout=2)
-                        if p_resp.status_code == 200:
-                            p_data = p_resp.json()
-                            total = p_data.get("total", 0)
-                            current = p_data.get("current", 0)
-                            p_start = p_data.get("start_time", start_time)
-                            
-                            if total > 0:
-                                pct = min(current / total, 0.99)
-                                prog_bar.progress(pct)
-                                elapsed = time.time() - p_start
-                                if current > 0:
-                                    if time.time() - last_progress_update > 0.5:
-                                        speed = current / elapsed
-                                        remaining = (total - current) / speed
-                                        time_txt.caption(f"⏱️ {elapsed:.1f}s | ⏳ Est: {remaining:.1f}s")
-                                        status_txt.info(f"Paso {current}/{total} ({pct*100:.1f}%)")
-                                        last_progress_update = time.time()
-                                else:
-                                    status_txt.info(f"🚀 Iniciando ({elapsed:.1f}s)...")
-                    except: pass
-                    time.sleep(0.5)
+            def make_request():
+                try:
+                    resp = requests.post(f"{API_URL}{endpoint}", json=payload, timeout=600)
+                    response_container.append(resp)
+                except Exception as ex:
+                    response_container.append(ex)
 
-                thread.join()
-                response = response_container[0]
-                if isinstance(response, Exception): raise response
+            thread = threading.Thread(target=make_request)
+            thread.start()
 
-                if response.status_code == 200:
-                    result = response.json()
-                    task["result"] = {
-                        "audio_id": result["audio_id"],
-                        "filename": result["filename"],
-                        "output_directory": output_directory
-                    }
-                    prog_bar.progress(100)
-                    status.update(label=f"✅ Audio #{task_idx + 1} listo", state="complete", expanded=False)
-                    return True
-                else:
-                    st.error(f"Error en audio #{task_idx + 1}: {response.json().get('detail')}")
-                    return False
-            except Exception as e:
-                st.error(f"Error conexión: {e}")
+            start_time = time.time()
+
+            while thread.is_alive():
+                current_elapsed = time.time() - start_time
+                timer_placeholder.markdown(f"**Generando...**  \n⏱️ **{current_elapsed:.1f}s**")
+                time.sleep(0.1)
+
+            timer_placeholder.empty()
+
+            thread.join()
+            response = response_container[0]
+            if isinstance(response, Exception):
+                raise response
+
+            if response.status_code == 200:
+                result = response.json()
+                task["result"] = {
+                    "audio_id": result["audio_id"],
+                    "filename": result["filename"],
+                    "output_directory": output_directory
+                }
+                st.success(f"✅ Audio #{task_idx + 1} listo")
+                return True
+            else:
+                st.error(f"Error en audio #{task_idx + 1}: {response.json().get('detail')}")
                 return False
+        except Exception as e:
+            st.error(f"Error conexión: {e}")
+            return False
 
     # Redefinir el loop de tareas para usar la función
     # (En una app real lo ideal es no re-renderizar todo, pero aquí es más simple)
@@ -686,34 +843,49 @@ with tab_generate:
 
                 if task["result"]:
                     res = task["result"]
-                    audio_get_url = f"{API_URL}/audio/{res['audio_id']}"
+                    audio_id = res.get("saved_audio_id", res["audio_id"])
+                    audio_get_url = f"{API_URL}/audio/{audio_id}"
+                    audio_directory = res.get("saved_output_directory") or res.get("output_directory")
+                    if audio_directory:
+                        audio_get_url += f"?directory={requests.utils.quote(audio_directory)}"
                     audio_response = requests.get(audio_get_url)
                     if audio_response.status_code == 200:
                         st.audio(audio_response.content, format=f"audio/{output_format}")
+                        if res.get("saved"):
+                            st.caption("Audio guardado")
                 
                 c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
                 
                 with c_btn1:
                     # Botón GUARDAR a la izquierda si hay resultado
-                    if task["result"]:
+                    if task["result"] and not task["result"].get("saved"):
                         res = task["result"]
                         if st.button("💾 GUARDAR", key=f"s_{task['id']}", use_container_width=True):
                             save_payload = {"audio_id": res["audio_id"], "output_directory": output_directory}
                             s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
                             if s_resp.status_code == 200:
                                 st.toast(f"✅ Guardado")
-                                task["result"] = None
+                                saved_filename = s_resp.json().get("filename", "")
+                                task["result"].update({
+                                    "saved": True,
+                                    "saved_filename": saved_filename,
+                                    "saved_audio_id": Path(saved_filename).stem if saved_filename else res["audio_id"],
+                                    "saved_output_directory": output_directory,
+                                })
+                                st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
+                                save_config(st.session_state.config)
                                 st.cache_data.clear()
                                 st.rerun() # Rerun global para refrescar el tab de audios generados
                     else:
                         st.empty()
 
                 with c_btn2:
+                    gen_ui_placeholder = st.empty()
                     if st.button("🚀 Generar", key=f"g_{task['id']}", use_container_width=True):
                         # Asegurar que la voz seleccionada se guarde antes de generar
                         st.session_state.config["selected_voice"] = st.session_state.get("selected_voice_sidebar")
                         save_config(st.session_state.config)
-                        run_generation(idx)
+                        run_generation(idx, ui_placeholder=gen_ui_placeholder)
                         st.rerun() # Rerun global para mostrar reproductor y botón de guardar correctamente
 
         if tasks_changed:
@@ -721,7 +893,10 @@ with tab_generate:
             save_config(st.session_state.config)
 
         # Determinar si hay audios pendientes de guardar
-        pending_save = [t for t in st.session_state.generation_tasks if t["result"] is not None]
+        pending_save = [
+            t for t in st.session_state.generation_tasks
+            if t["result"] is not None and not t["result"].get("saved")
+        ]
 
         if pending_save:
             col_g1, col_g2, col_g3, col_g4 = st.columns([1, 1, 1, 1])
@@ -755,10 +930,18 @@ with tab_generate:
                 save_payload = {"audio_id": res["audio_id"], "output_directory": output_directory}
                 s_resp = requests.post(f"{API_URL}/confirm_save", json=save_payload)
                 if s_resp.status_code == 200:
-                    task["result"] = None
+                    saved_filename = s_resp.json().get("filename", "")
+                    task["result"].update({
+                        "saved": True,
+                        "saved_filename": saved_filename,
+                        "saved_audio_id": Path(saved_filename).stem if saved_filename else res["audio_id"],
+                        "saved_output_directory": output_directory,
+                    })
                     saved_count += 1
             
             if saved_count > 0:
+                st.session_state.config["generation_tasks"] = st.session_state.generation_tasks
+                save_config(st.session_state.config)
                 st.toast(f"✅ Se han guardado {saved_count} audios")
                 st.cache_data.clear()
                 st.rerun()
@@ -886,7 +1069,7 @@ with tab_outputs:
                 
                 # Usamos un container para agrupar
                 with st.container(border=True):
-                    c_info, c_play, c_sel_mark, c_del = st.columns([4, 1.5, 0.4, 0.6])
+                    c_info, c_play, c_sel_mark, c_del = st.columns([4, 2.4, 0.4, 0.6])
                     
                     with c_info:
                         # Al pulsar en el nombre, se selecciona/deselecciona
@@ -903,9 +1086,15 @@ with tab_outputs:
                         audio_url = f"{API_URL}/audio/{audio_id}"
                         if output_directory:
                             audio_url += f"?directory={requests.utils.quote(output_directory)}"
-                        
-                        if st.button("▶️ Escuchar", key=f"play_{filename}"):
-                            st.audio(audio_url)
+
+                        try:
+                            audio_response = requests.get(audio_url, timeout=15)
+                            if audio_response.status_code == 200:
+                                st.audio(audio_response.content)
+                            else:
+                                st.caption("No se pudo cargar el audio")
+                        except Exception:
+                            st.caption("No se pudo cargar el audio")
                     
                     with c_sel_mark:
                         if is_selected:
@@ -1125,7 +1314,7 @@ with tab_texts:
             
             def _make_request():
                 try:
-                    r = _req2.post(endpoint, json=payload, timeout=300)
+                    r = _req2.post(endpoint, json=payload, timeout=3600)
                     response_container.append(r)
                 except Exception as e:
                     exception_container.append(e)
@@ -1261,8 +1450,14 @@ with tab_texts:
             audio_name = event_audios.get(str(i), "")
             ts_formatted = _format_timestamp(ev.timestamp)
             ws.append([lap_label, ts_formatted, tipo, ev.summary, desc, audio_name])
-        safe_name = ".".join(c if c.isalnum() or c in " _-" else "_" for c in (name or "sesion")).strip()
-        excel_path = os.path.join(TEXTS_DIR, f"{safe_name}.xlsx")
+        safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in (name or "sesion")).strip() or "sesion"
+        excel_filename = f"{safe_name}.xlsx"
+        excel_path = os.path.join(TEXTS_DIR, excel_filename)
+        counter = 1
+        while os.path.exists(excel_path):
+            excel_filename = f"{safe_name} ({counter}).xlsx"
+            excel_path = os.path.join(TEXTS_DIR, excel_filename)
+            counter += 1
         wb.save(excel_path)
         return excel_path
 
@@ -1387,6 +1582,9 @@ with tab_texts:
             key="btn_save_session"
         )
 
+    if st.session_state.get("race_session_save_message"):
+        st.success(st.session_state.pop("race_session_save_message"))
+
     if save_session_btn and st.session_state.get("race_header"):
         # Si hay generación de audios en curso, pararla
         if st.session_state.get("all_audio_running"):
@@ -1403,9 +1601,11 @@ with tab_texts:
         
         excel_path = _save_excel(session_name)
         if excel_path:
-            st.success(f"✅ Sesión guardada como **{session_name}** (Excel: `{os.path.basename(excel_path)}`)")
+            st.session_state["race_session_save_message"] = (
+                f"✅ Sesión guardada como **{session_name}** (Excel: `{os.path.basename(excel_path)}`)"
+            )
         else:
-            st.success(f"✅ Sesión guardada como **{session_name}**")
+            st.session_state["race_session_save_message"] = f"✅ Sesión guardada como **{session_name}**"
         st.session_state["all_audio_running"] = False
         st.session_state["all_audio_stop"] = False
         st.rerun()

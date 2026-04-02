@@ -4,6 +4,11 @@ import torch
 import time
 import argparse
 
+# Maximizar uso de CPU: usar todos los cores disponibles
+_cpu_count = os.cpu_count() or 4
+torch.set_num_threads(_cpu_count)
+torch.set_num_interop_threads(max(1, _cpu_count // 2))
+
 # 1. Configurar path para encontrar el paquete 'vibevoice'
 # (Se espera que este script se ejecute con PYTHONPATH apuntando a VibeVoice, 
 # o lo configuramos aquí basándonos en la ubicación esperada)
@@ -151,7 +156,8 @@ def main():
     
     processor = VibeVoiceProcessor.from_pretrained(args.model_path)
     
-    load_dtype = torch.bfloat16 if args.device == "cuda" else torch.float32
+    # float32 usa instrucciones AVX2/MKL nativas en CPU — bfloat16 es emulado y ~6x más lento
+    load_dtype = torch.float32
     attn_impl = "flash_attention_2" if args.device == "cuda" else "sdpa"
     
     model = VibeVoiceForConditionalGenerationInference.from_pretrained(
@@ -159,6 +165,7 @@ def main():
         torch_dtype=load_dtype,
         device_map=args.device,
         attn_implementation=attn_impl,
+        low_cpu_mem_usage=True,  # Carga shard a shard para evitar pico de RAM
     )
     
     if args.checkpoint_path:

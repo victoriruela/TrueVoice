@@ -4,6 +4,7 @@ Sirve como capa intermedia entre el frontend (Streamlit) y el backend (vibevoice
 """
 
 import os
+import signal
 import sys
 import uuid
 import subprocess
@@ -49,6 +50,34 @@ VOICES_DIR = DEFAULT_VOICES_DIR
 # ── Almacenamiento de Progreso ──────────────────────────────────────────────
 # Estructura: { "audio_id": { "total": 100, "current": 10, "start_time": float, "last_update": float } }
 PROGRESS_STORE = {}
+ACTIVE_PROCESSES = {}
+
+
+def cancel_active_process(progress_id: str) -> bool:
+    process = ACTIVE_PROCESSES.get(progress_id)
+    if not process:
+        return False
+
+    if process.poll() is not None:
+        ACTIVE_PROCESSES.pop(progress_id, None)
+        return False
+
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            process.wait(timeout=2)
+        return True
+    except Exception as ex:
+        print(f"[API] Error cancelando proceso {progress_id}: {ex}")
+        return False
+    finally:
+        ACTIVE_PROCESSES.pop(progress_id, None)
+        if progress_id in PROGRESS_STORE:
+            PROGRESS_STORE[progress_id]["status"] = "cancelled"
+            PROGRESS_STORE[progress_id]["last_update"] = time.time()
 
 print(f"[API] PROJECT_ROOT: {PROJECT_ROOT}")
 print(f"[API] DEFAULT_VOICES_DIR: {DEFAULT_VOICES_DIR}")
@@ -276,7 +305,9 @@ def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
             errors="replace",
             cwd=str(PROJECT_ROOT),
             bufsize=1, # Line buffered
+            start_new_session=True,
         )
+        ACTIVE_PROCESSES[progress_id] = process
 
         stdout_acc = []
         stderr_acc = []
@@ -296,6 +327,7 @@ def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
                             PROGRESS_STORE[prog_id]["last_update"] = time.time()
                         except: pass
                     # print(f"[API-ERR] {line.strip()}")
+                    print(f"[API-ERR] {line.strip()}", flush=True)
             finally:
                 pipe.close()
 
@@ -329,9 +361,13 @@ def generate_audio(req: GenerateRequest, voice_directory: Optional[str] = None):
 
         # Capturar stderr restante (aunque ya lo hace el hilo, esperamos a que termine)
         stderr_thread.join(timeout=5)
+        ACTIVE_PROCESSES.pop(progress_id, None)
         
         # Log completo para debug
         print(f"[API] Return code: {process.returncode}")
+        if process.returncode != 0:
+            print("[API] === STDOUT ===")
+            print("".join(stdout_acc[-50:]), flush=True)
         
         if process.returncode != 0:
             PROGRESS_STORE[progress_id]["status"] = "failed"
@@ -421,15 +457,20 @@ def confirm_save(req: SaveRequest):
 
 @app.post("/cleanup_temp")
 def cleanup_temp():
-    """Borra todos los archivos de la carpeta temporal."""
+    """Cancela procesos activos y borra todos los archivos de la carpeta temporal."""
+    cancelled = 0
+    for progress_id in list(ACTIVE_PROCESSES.keys()):
+        if cancel_active_process(progress_id):
+            cancelled += 1
+
     count = 0
     for f in TEMP_DIR.glob("*.*"):
         try:
             f.unlink()
             count += 1
         except: pass
-    print(f"[API] Limpieza temporal: {count} archivos borrados")
-    return {"success": True, "count": count}
+    print(f"[API] Limpieza temporal: {cancelled} procesos cancelados, {count} archivos borrados")
+    return {"success": True, "count": count, "cancelled": cancelled}
 
 
 @app.get("/progress/{audio_id}")

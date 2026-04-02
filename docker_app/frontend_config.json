@@ -1,0 +1,17 @@
+{
+    "voice_folder_type": "Escoger carpeta local",
+    "custom_folder_path": "",
+    "output_folder_type": "Usar carpeta por defecto (api_outputs)",
+    "custom_output_path": "",
+    "texts_folder_type": "Usar carpeta por defecto (race_sessions/textos)",
+    "custom_texts_path": "",
+    "selected_voice": "",
+    "selected_model_name": "VibeVoice 1.5B (recomendado)",
+    "selected_model": "microsoft/VibeVoice-1.5b",
+    "output_format": "wav",
+    "cfg_scale": 2.4,
+    "ddpm_steps": 10,
+    "disable_prefill": false,
+    "ollama_url": "http://host.docker.internal:11434",
+    "ollama_model": ""
+}
