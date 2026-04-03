@@ -1,6 +1,7 @@
 package race
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,11 +9,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/tealeg/xlsx/v3"
 
 	"truevoice/internal/config"
 )
@@ -290,7 +290,234 @@ func (m *Manager) DeleteSessionHandler(w http.ResponseWriter, r *http.Request) {
 
 // ── Excel Export ───────────────────────────────────────────────────
 
-func (m *Manager) ExcelHandler(w http.ResponseWriter, r *http.Request) {
+func formatExcelTimestamp(seconds float64) string {
+	total := int(seconds)
+	if total < 0 {
+		total = 0
+	}
+	h := total / 3600
+	m := (total % 3600) / 60
+	s := total % 60
+	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+}
+
+func eventTypeLabel(eventType int) string {
+	switch eventType {
+	case 0:
+		return "Evento Manual"
+	case 1:
+		return "Adelantamiento"
+	case 2:
+		return "Choque entre pilotos"
+	case 3:
+		return "Choque contra muro"
+	case 4:
+		return "Penalización"
+	case 5:
+		return "Entrada a boxes"
+	default:
+		return ""
+	}
+}
+
+func writeSessionCSV(w http.ResponseWriter, session RaceSession, filename string) error {
+	if session.EventAudios == nil {
+		session.EventAudios = map[string]string{}
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.csv"`, filename))
+
+	csvW := csv.NewWriter(w)
+	if err := csvW.Write([]string{"Vuelta", "Timestamp", "Tipo", "Resumen", "Descripción IA", "Audio"}); err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(session.IntroText) != "" || strings.TrimSpace(session.IntroAudio) != "" {
+		if err := csvW.Write([]string{
+			"",
+			"00:00:00",
+			"Introducción",
+			"",
+			session.IntroText,
+			session.IntroAudio,
+		}); err != nil {
+			return err
+		}
+	}
+
+	for i, ev := range session.Events {
+		audioID := session.EventAudios[fmt.Sprintf("%d", i)]
+		if err := csvW.Write([]string{
+			fmt.Sprintf("%d", ev.Lap),
+			formatExcelTimestamp(ev.Timestamp),
+			eventTypeLabel(ev.EventType),
+			ev.Summary,
+			ev.Description,
+			audioID,
+		}); err != nil {
+			return err
+		}
+	}
+	csvW.Flush()
+	return csvW.Error()
+}
+
+func (m *Manager) CSVExportHandler(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	if name == "" {
+		name = "sesion"
+	}
+
+	var raw map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	session := RaceSession{
+		IntroText:  getStringAny(raw, "intro_text", "introText", "IntroText"),
+		IntroAudio: getStringAny(raw, "intro_audio", "introAudio", "IntroAudio"),
+		EventAudios: map[string]string{},
+	}
+
+	if aud, ok := getMapAny(raw, "event_audios", "eventAudios", "EventAudios"); ok {
+		for k, v := range aud {
+			session.EventAudios[k] = toString(v)
+		}
+	}
+
+	if list, ok := getSliceAny(raw, "events", "Events"); ok {
+		events := make([]RaceEvent, 0, len(list))
+		for _, item := range list {
+			em, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			events = append(events, RaceEvent{
+				Lap:         toIntAny(em, "lap", "Lap"),
+				Timestamp:   toTimestampAny(em, "timestamp", "Timestamp"),
+				EventType:   toIntAny(em, "event_type", "eventType", "EventType"),
+				Summary:     getStringAny(em, "summary", "Summary"),
+				Description: getStringAny(em, "description", "Description"),
+			})
+		}
+		session.Events = events
+	}
+
+	if err := writeSessionCSV(w, session, name); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+}
+
+func getStringAny(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			return toString(v)
+		}
+	}
+	return ""
+}
+
+func getMapAny(m map[string]any, keys ...string) (map[string]any, bool) {
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			if out, ok := v.(map[string]any); ok {
+				return out, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func getSliceAny(m map[string]any, keys ...string) ([]any, bool) {
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			if out, ok := v.([]any); ok {
+				return out, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func toString(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case float64:
+		if t == float64(int64(t)) {
+			return strconv.FormatInt(int64(t), 10)
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(t)
+	case int64:
+		return strconv.FormatInt(t, 10)
+	default:
+		return fmt.Sprintf("%v", t)
+	}
+}
+
+func toIntAny(m map[string]any, keys ...string) int {
+	for _, k := range keys {
+		v, ok := m[k]
+		if !ok || v == nil {
+			continue
+		}
+		switch t := v.(type) {
+		case float64:
+			return int(t)
+		case int:
+			return t
+		case int64:
+			return int(t)
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func toTimestampAny(m map[string]any, keys ...string) float64 {
+	for _, k := range keys {
+		v, ok := m[k]
+		if !ok || v == nil {
+			continue
+		}
+		switch t := v.(type) {
+		case float64:
+			return t
+		case int:
+			return float64(t)
+		case int64:
+			return float64(t)
+		case string:
+			ts := strings.TrimSpace(t)
+			if ts == "" {
+				return 0
+			}
+			if strings.Count(ts, ":") == 2 {
+				parts := strings.Split(ts, ":")
+				h, _ := strconv.Atoi(parts[0])
+				m, _ := strconv.Atoi(parts[1])
+				s, _ := strconv.Atoi(parts[2])
+				return float64(h*3600 + m*60 + s)
+			}
+			if n, err := strconv.ParseFloat(strings.ReplaceAll(ts, ",", "."), 64); err == nil {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func (m *Manager) CSVHandler(w http.ResponseWriter, r *http.Request) {
 	name := extractPathParam(r.URL.Path, "sessions")
 	decoded, _ := url.PathUnescape(name)
 	path := filepath.Join(m.sessionsDir(), decoded+".json")
@@ -303,35 +530,7 @@ func (m *Manager) ExcelHandler(w http.ResponseWriter, r *http.Request) {
 
 	var session RaceSession
 	json.Unmarshal(data, &session)
-
-	xf := xlsx.NewFile()
-	sheet, err := xf.AddSheet("Eventos")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	headers := []string{"Vuelta", "Timestamp", "Tipo", "Resumen", "Descripción IA", "Audio"}
-	headerRow := sheet.AddRow()
-	for _, h := range headers {
-		cell := headerRow.AddCell()
-		cell.SetString(h)
-	}
-
-	for i, ev := range session.Events {
-		audioID := session.EventAudios[fmt.Sprintf("%d", i)]
-		row := sheet.AddRow()
-		row.AddCell().SetInt(ev.Lap)
-		row.AddCell().SetFloat(ev.Timestamp)
-		row.AddCell().SetInt(ev.EventType)
-		row.AddCell().SetString(ev.Summary)
-		row.AddCell().SetString(ev.Description)
-		row.AddCell().SetString(audioID)
-	}
-
-	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.xlsx"`, decoded))
-	if err := xf.Write(w); err != nil {
+	if err := writeSessionCSV(w, session, decoded); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

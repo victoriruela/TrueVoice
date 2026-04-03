@@ -81,12 +81,24 @@ export const getProgress = (id: string) =>
 export const cancelGeneration = (id: string) => api.post(`/cancel/${id}`);
 export const cancelAllGenerations = () => api.post<{ cancelled: number }>("/cancel_all");
 
+export interface ConfirmSaveResponse {
+  status: string;
+  path: string;
+  audio_id?: string;
+  filename?: string;
+}
 export const confirmSave = (audioId: string, outputDirectory?: string) =>
-  api.post("/confirm_save", { audio_id: audioId, output_directory: outputDirectory });
+  api.post<ConfirmSaveResponse>("/confirm_save", { audio_id: audioId, output_directory: outputDirectory });
 
 export const getAudioUrl = (id: string, directory?: string) => {
-  const params = directory ? `?directory=${encodeURIComponent(directory)}` : "";
-  return `${API_BASE}/audio/${id}${params}`;
+  const base = `${API_BASE}/audio/${encodeURIComponent(id)}`;
+  const params = new URLSearchParams();
+  if (directory) {
+    params.append("directory", directory);
+  }
+  // Add cache-busting parameter to ensure fresh file load
+  params.append("t", Date.now().toString());
+  return `${base}?${params.toString()}`;
 };
 
 /* ── Outputs ────────────────────────────────────────────────────────── */
@@ -103,7 +115,8 @@ export const listOutputs = (directory?: string) =>
   });
 export const deleteOutputs = (filenames: string[], directory?: string) =>
   api.delete("/outputs/delete", {
-    params: { filenames, ...(directory ? { directory } : {}) },
+    data: { filenames },
+    params: directory ? { directory } : {},
   });
 
 export const cleanupTemp = () => api.post("/cleanup_temp");
@@ -188,7 +201,11 @@ export const raceSaveSession = (name: string, session: RaceSession) =>
   api.post(`/race/sessions/${encodeURIComponent(name)}`, session);
 export const raceDeleteSession = (name: string) =>
   api.delete(`/race/sessions/${encodeURIComponent(name)}`);
-export const raceExcelUrl = (name: string) =>
-  `${API_BASE}/race/sessions/${encodeURIComponent(name)}/excel`;
+export const raceCSVUrl = (name: string) =>
+  `${API_BASE}/race/sessions/${encodeURIComponent(name)}/csv`;
+export const raceExportCSV = (name: string, session: RaceSession) =>
+  api.post(`/race/csv?name=${encodeURIComponent(name)}`, session, {
+    responseType: "blob",
+  });
 
 export default api;

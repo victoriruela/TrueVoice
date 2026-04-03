@@ -17,6 +17,13 @@ interface RaceStore {
   events: RaceEventData[];
   introText: string;
   introAudio: string;
+  currentAudioItem: string;
+  currentAudioStartedAt: number | null;
+  batchGenerating: boolean;
+  batchDone: number;
+  batchTotal: number;
+  batchCurrentItem: string;
+  batchStartedAt: number | null;
   eventAudios: Record<string, string>;
   hiddenEventIndices: Set<number>;
   selectedEventIndices: Set<number>;
@@ -32,7 +39,11 @@ interface RaceStore {
   updateEventDescription: (index: number, description: string) => void;
   setIntroText: (text: string) => void;
   setIntroAudio: (filename: string) => void;
+  setCurrentAudioGeneration: (item: string, startedAt: number | null) => void;
+  setBatchProgress: (patch: Partial<Pick<RaceStore, "batchGenerating" | "batchDone" | "batchTotal" | "batchCurrentItem" | "batchStartedAt">>) => void;
+  clearBatchProgress: () => void;
   setEventAudio: (index: number, filename: string) => void;
+  setEvents: (events: RaceEventData[]) => void;
   insertEventAfter: (index: number) => void;
   toggleEventSelected: (index: number) => void;
   selectAllEvents: () => void;
@@ -46,6 +57,30 @@ interface RaceStore {
   saveSession: (name: string) => Promise<void>;
   deleteSession: (name: string) => Promise<void>;
   newSession: () => void;
+  removeAudioReferencesByIds: (audioIds: string[]) => void;
+  loadFromCSV: (
+    events: RaceEventData[],
+    eventAudios: Record<string, string>,
+    introText: string,
+    introAudio: string,
+  ) => void;
+}
+
+interface RaceDraft {
+  header: RaceHeaderData | null;
+  events: RaceEventData[];
+  introText: string;
+  introAudio: string;
+  eventAudios: Record<string, string>;
+  hiddenEventIndices: number[];
+  selectedEventIndices: number[];
+  currentSession: string;
+}
+
+const RACE_DRAFT_STORAGE_KEY = "truevoice-race-draft-v1";
+
+function canUseLocalStorage(): boolean {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
 function buildSessionPayload(state: Pick<RaceStore, "introText" | "introAudio" | "header" | "events" | "eventAudios" | "hiddenEventIndices" | "selectedEventIndices">): RaceSession {
@@ -94,7 +129,85 @@ function reindexAfterDelete(
   return { nextEvents, nextAudios, nextHidden, nextSelected };
 }
 
+function normalizeHeader(header: RaceHeaderData | null | undefined): RaceHeaderData | null {
+  if (!header) {
+    return null;
+  }
+  return {
+    ...header,
+    grid_order: Array.isArray(header.grid_order) ? header.grid_order : [],
+  };
+}
+
+function normalizeEvents(events: RaceEventData[] | null | undefined): RaceEventData[] {
+  return Array.isArray(events) ? events : [];
+}
+
+function normalizeSessionsList(sessions: { name: string; modified: number }[] | null | undefined) {
+  return Array.isArray(sessions) ? sessions : [];
+}
+
+function normalizeIndices(indices: number[] | null | undefined): Set<number> {
+  return new Set(Array.isArray(indices) ? indices : []);
+}
+
+function toDraft(state: Pick<RaceStore, "header" | "events" | "introText" | "introAudio" | "eventAudios" | "hiddenEventIndices" | "selectedEventIndices" | "currentSession">): RaceDraft {
+  return {
+    header: state.header,
+    events: state.events,
+    introText: state.introText,
+    introAudio: state.introAudio,
+    eventAudios: state.eventAudios,
+    hiddenEventIndices: Array.from(state.hiddenEventIndices),
+    selectedEventIndices: Array.from(state.selectedEventIndices),
+    currentSession: state.currentSession,
+  };
+}
+
+function loadRaceDraft(): RaceDraft | null {
+  if (!canUseLocalStorage()) {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(RACE_DRAFT_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const data = JSON.parse(raw) as Partial<RaceDraft>;
+    return {
+      header: normalizeHeader(data.header as RaceHeaderData | null | undefined),
+      events: normalizeEvents(data.events as RaceEventData[] | null | undefined),
+      introText: typeof data.introText === "string" ? data.introText : "",
+      introAudio: typeof data.introAudio === "string" ? data.introAudio : "",
+      eventAudios: data.eventAudios && typeof data.eventAudios === "object" ? data.eventAudios : {},
+      hiddenEventIndices: Array.isArray(data.hiddenEventIndices) ? data.hiddenEventIndices : [],
+      selectedEventIndices: Array.isArray(data.selectedEventIndices) ? data.selectedEventIndices : [],
+      currentSession: typeof data.currentSession === "string" ? data.currentSession : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistRaceDraft(state: Pick<RaceStore, "header" | "events" | "introText" | "introAudio" | "eventAudios" | "hiddenEventIndices" | "selectedEventIndices" | "currentSession">) {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(RACE_DRAFT_STORAGE_KEY, JSON.stringify(toDraft(state)));
+  } catch {
+    // Best effort persistence.
+  }
+}
+
 export const useRaceStore = create<RaceStore>((set, get) => {
+  const draft = loadRaceDraft();
+
+  const persistNow = () => {
+    const state = get();
+    persistRaceDraft(state);
+  };
+
   const autosaveCurrentSession = async () => {
     const state = get();
     if (!state.currentSession || !state.header) {
@@ -108,15 +221,22 @@ export const useRaceStore = create<RaceStore>((set, get) => {
   };
 
   return {
-    header: null,
-    events: [],
-    introText: "",
-    introAudio: "",
-    eventAudios: {},
-    hiddenEventIndices: new Set(),
-    selectedEventIndices: new Set(),
+    header: draft?.header || null,
+    events: draft?.events || [],
+    introText: draft?.introText || "",
+    introAudio: draft?.introAudio || "",
+    currentAudioItem: "",
+    currentAudioStartedAt: null,
+    batchGenerating: false,
+    batchDone: 0,
+    batchTotal: 0,
+    batchCurrentItem: "",
+    batchStartedAt: null,
+    eventAudios: draft?.eventAudios || {},
+    hiddenEventIndices: normalizeIndices(draft?.hiddenEventIndices),
+    selectedEventIndices: normalizeIndices(draft?.selectedEventIndices),
     sessions: [],
-    currentSession: "",
+    currentSession: draft?.currentSession || "",
     loading: false,
     error: null,
 
@@ -124,15 +244,17 @@ export const useRaceStore = create<RaceStore>((set, get) => {
       set({ loading: true, error: null });
       try {
         const { data } = await raceParse(file);
+        const header = normalizeHeader(data.header);
         set({
-          header: data.header,
-          events: data.events,
-          introText: data.header.intro_text || "",
+          header,
+          events: normalizeEvents(data.events),
+          introText: header?.intro_text || "",
           eventAudios: {},
           introAudio: "",
           hiddenEventIndices: new Set(),
           selectedEventIndices: new Set(),
         });
+        persistNow();
       } catch (err: any) {
         set({ error: err?.response?.data?.detail || "Error parsing XML" });
       } finally {
@@ -147,6 +269,7 @@ export const useRaceStore = create<RaceStore>((set, get) => {
       try {
         const { data } = await raceGenerateIntro(header);
         set({ introText: data.intro_text });
+        persistNow();
       } catch (err: any) {
         set({ error: err?.response?.data?.detail || "Error generating intro" });
       } finally {
@@ -160,7 +283,8 @@ export const useRaceStore = create<RaceStore>((set, get) => {
       set({ loading: true, error: null });
       try {
         const { data } = await raceGenerateDescriptions(events);
-        set({ events: data.events });
+        set({ events: normalizeEvents(data.events) });
+        persistNow();
       } catch (err: any) {
         set({ error: err?.response?.data?.detail || "Error generating descriptions" });
       } finally {
@@ -183,6 +307,7 @@ export const useRaceStore = create<RaceStore>((set, get) => {
             i === index ? { ...item, description: generated.description || item.description } : item,
           ),
         }));
+        persistNow();
       } catch (err: any) {
         set({ error: err?.response?.data?.detail || "Error generating event description" });
       } finally {
@@ -194,14 +319,42 @@ export const useRaceStore = create<RaceStore>((set, get) => {
       set((s) => ({
         events: s.events.map((e, i) => (i === index ? { ...e, description } : e)),
       }));
+      persistNow();
     },
 
-    setIntroText: (text) => set({ introText: text }),
-    setIntroAudio: (filename) => set({ introAudio: filename }),
+    setIntroText: (text) => {
+      set({ introText: text });
+      persistNow();
+    },
+    setIntroAudio: (filename) => {
+      set({ introAudio: filename });
+      persistNow();
+    },
+    setCurrentAudioGeneration: (item, startedAt) => {
+      set({ currentAudioItem: item, currentAudioStartedAt: startedAt });
+    },
+    setBatchProgress: (patch) => {
+      set((s) => ({ ...s, ...patch }));
+    },
+    clearBatchProgress: () => {
+      set({
+        batchGenerating: false,
+        batchDone: 0,
+        batchTotal: 0,
+        batchCurrentItem: "",
+        batchStartedAt: null,
+      });
+    },
     setEventAudio: (index, filename) => {
       set((s) => ({
         eventAudios: { ...s.eventAudios, [String(index)]: filename },
       }));
+      persistNow();
+    },
+
+    setEvents: (events) => {
+      set({ events });
+      persistNow();
     },
 
     insertEventAfter: (index) => {
@@ -217,7 +370,7 @@ export const useRaceStore = create<RaceStore>((set, get) => {
         const newEvent: RaceEventData = {
           lap: curr.lap,
           timestamp: midTimestamp,
-          event_type: 1,
+          event_type: 0,
           summary: "Evento manual",
           description: "",
         };
@@ -250,6 +403,7 @@ export const useRaceStore = create<RaceStore>((set, get) => {
           selectedEventIndices: newSelected,
         };
       });
+      persistNow();
       autosaveCurrentSession();
     },
 
@@ -263,6 +417,7 @@ export const useRaceStore = create<RaceStore>((set, get) => {
         }
         return { ...s, selectedEventIndices: next };
       });
+      persistNow();
     },
 
     selectAllEvents: () => {
@@ -275,10 +430,12 @@ export const useRaceStore = create<RaceStore>((set, get) => {
         });
         return { ...s, selectedEventIndices: next };
       });
+      persistNow();
     },
 
     clearEventSelection: () => {
       set((s) => ({ ...s, selectedEventIndices: new Set() }));
+      persistNow();
     },
 
     deleteEvent: async (index) => {
@@ -299,6 +456,7 @@ export const useRaceStore = create<RaceStore>((set, get) => {
           selectedEventIndices: nextSelected,
         };
       });
+      persistNow();
       await autosaveCurrentSession();
     },
 
@@ -325,6 +483,8 @@ export const useRaceStore = create<RaceStore>((set, get) => {
         };
       });
 
+      persistNow();
+
       await autosaveCurrentSession();
     },
 
@@ -347,13 +507,15 @@ export const useRaceStore = create<RaceStore>((set, get) => {
         };
       });
 
+      persistNow();
+
       await autosaveCurrentSession();
     },
 
     fetchSessions: async () => {
       try {
         const { data } = await raceListSessions();
-        set({ sessions: data });
+        set({ sessions: normalizeSessionsList(data) });
       } catch {
         set({ sessions: [] });
       }
@@ -363,16 +525,18 @@ export const useRaceStore = create<RaceStore>((set, get) => {
       set({ loading: true, error: null });
       try {
         const { data } = await raceGetSession(name);
+        const header = normalizeHeader(data.header);
         set({
-          header: data.header,
-          events: data.events,
-          introText: data.intro_text,
-          introAudio: data.intro_audio,
+          header,
+          events: normalizeEvents(data.events),
+          introText: data.intro_text || "",
+          introAudio: data.intro_audio || "",
           eventAudios: data.event_audios || {},
-          hiddenEventIndices: new Set(data.hidden_event_indices || []),
-          selectedEventIndices: new Set(data.selected_event_indices || []),
+          hiddenEventIndices: normalizeIndices(data.hidden_event_indices),
+          selectedEventIndices: normalizeIndices(data.selected_event_indices),
           currentSession: name,
         });
+        persistNow();
       } catch (err: any) {
         set({ error: err?.response?.data?.detail || "Error loading session" });
       } finally {
@@ -385,6 +549,7 @@ export const useRaceStore = create<RaceStore>((set, get) => {
       if (!state.header) return;
       await raceSaveSession(name, buildSessionPayload(state));
       set({ currentSession: name });
+      persistNow();
       await get().fetchSessions();
     },
 
@@ -407,6 +572,45 @@ export const useRaceStore = create<RaceStore>((set, get) => {
         selectedEventIndices: new Set(),
         currentSession: "",
       });
+      persistNow();
+    },
+
+    removeAudioReferencesByIds: (audioIds) => {
+      const target = new Set((audioIds || []).map((s) => s.trim()).filter(Boolean));
+      if (target.size === 0) {
+        return;
+      }
+
+      set((s) => {
+        const nextEventAudios: Record<string, string> = {};
+        Object.entries(s.eventAudios).forEach(([k, v]) => {
+          if (!target.has((v || "").trim())) {
+            nextEventAudios[k] = v;
+          }
+        });
+
+        const nextIntroAudio = target.has((s.introAudio || "").trim()) ? "" : s.introAudio;
+
+        return {
+          ...s,
+          introAudio: nextIntroAudio,
+          eventAudios: nextEventAudios,
+        };
+      });
+      persistNow();
+    },
+
+    loadFromCSV: (events, eventAudios, introText, introAudio) => {
+      set({
+        events: normalizeEvents(events),
+        eventAudios,
+        introText: introText || "",
+        introAudio: introAudio || "",
+        hiddenEventIndices: new Set(),
+        selectedEventIndices: new Set(),
+        currentSession: "",
+      });
+      persistNow();
     },
   };
 });

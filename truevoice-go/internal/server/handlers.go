@@ -13,6 +13,19 @@ import (
 	"time"
 )
 
+func ollamaURLCandidates(configured string) []string {
+	configured = strings.TrimRight(strings.TrimSpace(configured), "/")
+	if configured == "" {
+		configured = "http://localhost:11434"
+	}
+
+	candidates := []string{configured}
+	if !strings.EqualFold(configured, "http://localhost:11434") {
+		candidates = append(candidates, "http://localhost:11434")
+	}
+	return candidates
+}
+
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	models := []map[string]string{
 		{
@@ -33,15 +46,21 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 // ── Ollama Proxy ───────────────────────────────────────────────────
 
 func (s *Server) ollamaModels(w http.ResponseWriter, r *http.Request) {
-	ollamaURL := s.cfg.GetString("ollama_url")
-	if ollamaURL == "" {
-		ollamaURL = "http://localhost:11434"
-	}
-
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(ollamaURL + "/api/tags")
+	var (
+		resp    *http.Response
+		err     error
+		lastErr error
+	)
+	for _, baseURL := range ollamaURLCandidates(s.cfg.GetString("ollama_url")) {
+		resp, err = client.Get(baseURL + "/api/tags")
+		if err == nil {
+			break
+		}
+		lastErr = err
+	}
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Sprintf("Cannot reach Ollama: %v", err))
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("Cannot reach Ollama: %v", lastErr))
 		return
 	}
 	defer resp.Body.Close()
@@ -64,11 +83,6 @@ func (s *Server) ollamaModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) ollamaGenerate(w http.ResponseWriter, r *http.Request) {
-	ollamaURL := s.cfg.GetString("ollama_url")
-	if ollamaURL == "" {
-		ollamaURL = "http://localhost:11434"
-	}
-
 	var req struct {
 		Prompt  string         `json:"prompt"`
 		Model   string         `json:"model"`
@@ -93,9 +107,20 @@ func (s *Server) ollamaGenerate(w http.ResponseWriter, r *http.Request) {
 
 	raw, _ := json.Marshal(body)
 	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Post(ollamaURL+"/api/generate", "application/json", strings.NewReader(string(raw)))
+	var (
+		resp    *http.Response
+		err     error
+		lastErr error
+	)
+	for _, baseURL := range ollamaURLCandidates(s.cfg.GetString("ollama_url")) {
+		resp, err = client.Post(baseURL+"/api/generate", "application/json", strings.NewReader(string(raw)))
+		if err == nil {
+			break
+		}
+		lastErr = err
+	}
 	if err != nil {
-		writeError(w, http.StatusBadGateway, fmt.Sprintf("Ollama error: %v", err))
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("Ollama error: %v", lastErr))
 		return
 	}
 	defer resp.Body.Close()
@@ -125,7 +150,7 @@ func (s *Server) browseDrives(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		// Linux/Docker: list /mnt/
+		// Linux: list /mnt/
 		entries, err := os.ReadDir("/mnt")
 		if err == nil {
 			for _, e := range entries {

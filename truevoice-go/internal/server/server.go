@@ -42,6 +42,10 @@ func (s *Server) Shutdown() {
 	s.gen.CancelAll()
 }
 
+func (s *Server) BootstrapRuntime() error {
+	return s.gen.BootstrapRuntime()
+}
+
 func (s *Server) buildRouter() chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -98,7 +102,8 @@ func (s *Server) buildRouter() chi.Router {
 	r.Get("/race/sessions/{name}", s.race.GetSessionHandler)
 	r.Post("/race/sessions/{name}", s.race.SaveSessionHandler)
 	r.Delete("/race/sessions/{name}", s.race.DeleteSessionHandler)
-	r.Get("/race/sessions/{name}/excel", s.race.ExcelHandler)
+	r.Post("/race/csv", s.race.CSVExportHandler)
+	r.Get("/race/sessions/{name}/csv", s.race.CSVHandler)
 
 	// Setup / sidecar status
 	r.Get("/setup/status", s.gen.SetupStatusHandler)

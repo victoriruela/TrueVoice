@@ -127,18 +127,56 @@ func (m *Manager) ensureRuntimeReady() (string, error) {
 		return "", err
 	}
 
+	modelID := strings.TrimSpace(m.cfg.GetString("selected_model"))
+	if modelID == "" {
+		modelID = "microsoft/VibeVoice-1.5b"
+	}
+
+	m.setup.set("downloading_model", true, false, "", py)
+	if err := m.prefetchModel(py, modelID); err != nil {
+		m.setup.set("failed", false, false, err.Error(), py)
+		return "", err
+	}
+
 	manifest := map[string]any{
 		"updated":               time.Now().UTC().Format(time.RFC3339),
 		"python":                py,
 		"vibevoice_model":       "microsoft/VibeVoice-1.5b",
 		"bootstrap_complete":    true,
 		"bootstrap_description": "runtime python + deps installed",
+		"prefetched_model":      modelID,
 	}
 	_ = writeJSONFile(runtimeManifestFile(), manifest)
 	_ = os.WriteFile(runtimeReadyFile(), []byte("ok"), 0644)
 
 	m.setup.set("ready", false, true, "", py)
 	return py, nil
+}
+
+func (m *Manager) prefetchModel(py, modelID string) error {
+	cacheRoot := filepath.Join(runtimeRoot(), "models", "huggingface")
+	if err := os.MkdirAll(cacheRoot, 0755); err != nil {
+		return fmt.Errorf("create model cache dir failed: %w", err)
+	}
+
+	code := fmt.Sprintf(`from huggingface_hub import snapshot_download
+snapshot_download(repo_id=%q, cache_dir=%q, resume_download=True)
+print("model_ready")
+`, modelID, cacheRoot)
+
+	cmd := exec.Command(py, "-c", code)
+	cmd.Env = append(os.Environ(),
+		"PYTHONUTF8=1",
+		fmt.Sprintf("HF_HOME=%s", cacheRoot),
+		fmt.Sprintf("TRANSFORMERS_CACHE=%s", filepath.Join(cacheRoot, "transformers")),
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("prefetch model %s failed: %v: %s", modelID, err, string(out))
+	}
+
+	return nil
 }
 
 func (m *Manager) installEmbeddedPython() error {

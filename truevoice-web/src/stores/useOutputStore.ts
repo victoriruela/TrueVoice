@@ -25,7 +25,8 @@ export const useOutputStore = create<OutputStore>((set, get) => ({
     set({ loading: true });
     try {
       const { data } = await listOutputs(directory);
-      set({ outputs: data, selected: new Set() });
+      const sorted = [...data].sort((a, b) => b.created - a.created);
+      set({ outputs: sorted, selected: new Set() });
     } catch {
       set({ outputs: [] });
     } finally {

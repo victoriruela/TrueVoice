@@ -30,6 +30,12 @@ func main() {
 
 	srv := server.New(cfg)
 
+	log.Println("Bootstrapping Python runtime and VibeVoice dependencies (first run can take several minutes)...")
+	if err := srv.BootstrapRuntime(); err != nil {
+		log.Fatalf("Startup bootstrap failed: %v", err)
+	}
+	log.Println("Runtime bootstrap ready")
+
 	// Graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

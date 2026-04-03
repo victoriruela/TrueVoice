@@ -50,6 +50,7 @@ type Manager struct {
 	voices   *voices.Manager
 	progress sync.Map // map[string]*ProgressEntry
 	procs    sync.Map // map[string]*activeProcess
+	preferredFilenames sync.Map // map[audioID]string
 	setup    *setupState
 	bootMu   sync.Mutex
 }
@@ -71,6 +72,13 @@ func (m *Manager) CancelAll() {
 	})
 }
 
+// BootstrapRuntime ensures the embedded/system Python runtime and dependencies
+// are installed before serving generation requests.
+func (m *Manager) BootstrapRuntime() error {
+	_, err := m.ensureRuntimeReady()
+	return err
+}
+
 // ── Directories ────────────────────────────────────────────────────
 
 func tempDir() string {
@@ -87,9 +95,44 @@ func outputsDir() string {
 	return d
 }
 
+func uniqueOutputPath(dir, filename string) (string, string) {
+	ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, ext)
+	candidate := filepath.Join(dir, filename)
+
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		return candidate, filename
+	}
+
+	for i := 1; ; i++ {
+		nextName := fmt.Sprintf("%s (%d)%s", base, i, ext)
+		nextPath := filepath.Join(dir, nextName)
+		if _, err := os.Stat(nextPath); os.IsNotExist(err) {
+			return nextPath, nextName
+		}
+	}
+}
+
 func projectRoot() string {
+	// Try to get the executable path and work backwards
+	if exePath, err := os.Executable(); err == nil {
+		// Navigate up from exe location looking for vibevoice_app.py
+		current := filepath.Dir(exePath)
+		for i := 0; i < 5; i++ { // Check up to 5 levels up
+			if fileExists(filepath.Join(current, "vibevoice_app.py")) {
+				return current
+			}
+			parent := filepath.Dir(current)
+			if parent == current { // Reached root
+				break
+			}
+			current = parent
+		}
+	}
+
+	// Fallback to working directory approach
 	wd, _ := os.Getwd()
-	candidates := []string{wd, filepath.Dir(wd)}
+	candidates := []string{wd, filepath.Dir(wd), filepath.Dir(filepath.Dir(wd))}
 	for _, c := range candidates {
 		if fileExists(filepath.Join(c, "vibevoice_app.py")) {
 			return c
@@ -161,6 +204,16 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 			audioID = fmt.Sprintf("tv_%d", time.Now().UnixMilli())
 		}
 	}
+
+	preferredBase := strings.TrimSpace(req.CustomOutputName)
+	preferredBase = strings.TrimSuffix(preferredBase, filepath.Ext(preferredBase))
+	preferredBase = strings.TrimSpace(filepath.Base(preferredBase))
+	if preferredBase == "" {
+		preferredBase = audioID
+	}
+	preferredFilename := preferredBase + "." + req.OutputFormat
+	m.preferredFilenames.Store(audioID, preferredFilename)
+
 	filename := audioID + "." + req.OutputFormat
 	outputPath := filepath.Join(tempDir(), filename)
 
@@ -206,7 +259,13 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 	if existing := os.Getenv("PYTHONPATH"); existing != "" {
 		pyPath = wd + string(os.PathListSeparator) + existing
 	}
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+pyPath, "PYTHONUNBUFFERED=1")
+	hfHome := filepath.Join(runtimeRoot(), "models", "huggingface")
+	cmd.Env = append(os.Environ(),
+		"PYTHONPATH="+pyPath,
+		"PYTHONUNBUFFERED=1",
+		"HF_HOME="+hfHome,
+		"TRANSFORMERS_CACHE="+filepath.Join(hfHome, "transformers"),
+	)
 
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
@@ -403,7 +462,13 @@ func (m *Manager) ConfirmSaveHandler(w http.ResponseWriter, r *http.Request) {
 		stem := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
 		if stem == req.AudioID || e.Name() == req.AudioID {
 			src := filepath.Join(tmpDir, e.Name())
-			dst := filepath.Join(outDir, e.Name())
+			targetFilename := e.Name()
+			if preferred, ok := m.preferredFilenames.Load(req.AudioID); ok {
+				if name, ok := preferred.(string); ok && strings.TrimSpace(name) != "" {
+					targetFilename = name
+				}
+			}
+			dst, savedFilename := uniqueOutputPath(outDir, targetFilename)
 			if err := os.Rename(src, dst); err != nil {
 				// Cross-device: copy then delete
 				if err := copyFile(src, dst); err != nil {
@@ -412,7 +477,14 @@ func (m *Manager) ConfirmSaveHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				os.Remove(src)
 			}
-			writeJSON(w, http.StatusOK, map[string]string{"status": "saved", "path": dst})
+			m.preferredFilenames.Delete(req.AudioID)
+			savedStem := strings.TrimSuffix(savedFilename, filepath.Ext(savedFilename))
+			writeJSON(w, http.StatusOK, map[string]string{
+				"status":   "saved",
+				"path":     dst,
+				"audio_id": savedStem,
+				"filename": savedFilename,
+			})
 			return
 		}
 	}

@@ -6,11 +6,12 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
 import { useVoiceStore } from "../src/stores/useVoiceStore";
-import { ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus } from "../src/api";
+import { ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus, browseDrives, browseFolders } from "../src/api";
 
 const MODEL_OPTIONS = [
   { label: "VibeVoice 1.5B (recomendado)", value: "microsoft/VibeVoice-1.5b" },
@@ -61,6 +62,139 @@ function Slider({
   );
 }
 
+function FolderPicker({
+  visible,
+  onSelect,
+  onClose,
+  title,
+}: {
+  visible: boolean;
+  onSelect: (path: string) => void;
+  onClose: () => void;
+  title: string;
+}) {
+  const [currentPath, setCurrentPath] = useState<string>("");
+  const [drives, setDrives] = useState<string[]>([]);
+  const [folders, setFolders] = useState<{ name: string; path: string }[]>([]);
+  const [parentPath, setParentPath] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (visible && !currentPath) {
+      loadDrives();
+    }
+  }, [visible]);
+
+  const loadDrives = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await browseDrives();
+      setDrives(data || []);
+      setCurrentPath("");
+      setFolders([]);
+      setParentPath("");
+    } catch (e) {
+      console.error("Error loading drives:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loadFolders = useCallback(async (path: string) => {
+    setLoading(true);
+    try {
+      const { data } = await browseFolders(path);
+      setCurrentPath(data.current);
+      setFolders(data.folders || []);
+      setParentPath(data.parent || "");
+    } catch (e) {
+      console.error("Error loading folders:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleNavigate = (path: string) => {
+    loadFolders(path);
+  };
+
+  const handleBack = () => {
+    if (parentPath) {
+      loadFolders(parentPath);
+    } else {
+      loadDrives();
+    }
+  };
+
+  const handleSelect = () => {
+    onSelect(currentPath);
+    onClose();
+    setCurrentPath("");
+    setDrives([]);
+    setFolders([]);
+    setParentPath("");
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 16 }}>
+        <View style={{ backgroundColor: colors.bg, borderRadius: 12, width: "90%", maxHeight: "80%", padding: 16 }}>
+          <Text style={[shared.title, { marginBottom: 16, fontSize: 16 }]}>{title}</Text>
+
+          {loading ? (
+            <ActivityIndicator size="large" color={colors.primary} />
+          ) : currentPath ? (
+            <>
+              <Text style={{ color: colors.textDim, marginBottom: 8, fontSize: 12 }}>
+                {currentPath.length > 50 ? "..." + currentPath.slice(-47) : currentPath}
+              </Text>
+
+              <ScrollView style={{ maxHeight: "60%", marginBottom: 12, borderBottomWidth: 1, borderColor: colors.border, paddingBottom: 12 }}>
+                {parentPath && (
+                  <Pressable onPress={handleBack} style={{ paddingVertical: 8, paddingHorizontal: 12, backgroundColor: colors.border, marginBottom: 8, borderRadius: 6 }}>
+                    <Text style={{ color: colors.text }}>📁 .. (Atrás)</Text>
+                  </Pressable>
+                )}
+                {folders.length === 0 ? (
+                  <Text style={{ color: colors.textDim }}>Sin carpetas</Text>
+                ) : (
+                  folders.map((folder) => (
+                    <Pressable key={folder.path} onPress={() => handleNavigate(folder.path)} style={{ paddingVertical: 8, paddingHorizontal: 12 }}>
+                      <Text style={{ color: colors.primary }}>📁 {folder.name}</Text>
+                    </Pressable>
+                  ))
+                )}
+              </ScrollView>
+
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable style={[shared.buttonSecondary, { flex: 1 }]} onPress={onClose}>
+                  <Text style={[shared.buttonText, { color: colors.text }]}>Cancelar</Text>
+                </Pressable>
+                <Pressable style={[shared.button, { flex: 1 }]} onPress={handleSelect}>
+                  <Text style={shared.buttonText}>Seleccionar</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <>
+              <ScrollView style={{ maxHeight: "70%", marginBottom: 12 }}>
+                {drives.map((drive) => (
+                  <Pressable key={drive} onPress={() => handleNavigate(drive)} style={{ paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderColor: colors.border }}>
+                    <Text style={{ color: colors.primary, fontSize: 14 }}>💾 {drive}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+              <Pressable style={shared.buttonSecondary} onPress={onClose}>
+                <Text style={[shared.buttonText, { color: colors.text }]}>Cancelar</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function SettingsScreen() {
   const { config, loading, patch } = useConfigStore();
   const { voices, fetch: fetchVoices } = useVoiceStore();
@@ -68,6 +202,7 @@ export default function SettingsScreen() {
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
+  const [showAudioFolderPicker, setShowAudioFolderPicker] = useState(false);
 
   useEffect(() => {
     fetchVoices();
@@ -251,14 +386,22 @@ export default function SettingsScreen() {
       </Section>
 
       {/* Output directory */}
-      <Section title="Carpeta de salida">
-        <TextInput
-          style={shared.input}
-          value={config.output_directory}
-          onChangeText={(v) => patch({ output_directory: v })}
-          placeholder="Dejar vacío para usar la carpeta por defecto"
-          placeholderTextColor={colors.textDim}
-        />
+      <Section title="📂 Carpeta de salida de audios">
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ color: colors.textDim, marginBottom: 8, fontSize: 12 }}>
+            {config.output_directory ? (config.output_directory.length > 50 ? "..." + config.output_directory.slice(-47) : config.output_directory) : "No seleccionado - usar carpeta por defecto"}
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable style={[shared.button, { flex: 1 }]} onPress={() => setShowAudioFolderPicker(true)}>
+              <Text style={shared.buttonText}>Seleccionar carpeta</Text>
+            </Pressable>
+            {config.output_directory && (
+              <Pressable style={shared.buttonSecondary} onPress={() => patch({ output_directory: "" })}>
+                <Text style={[shared.buttonText, { color: colors.text }]}>Limpiar</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
       </Section>
 
       {/* Ollama */}
@@ -338,6 +481,14 @@ export default function SettingsScreen() {
       </Section>
 
       <View style={{ height: 40 }} />
+
+      {/* Folder Pickers */}
+      <FolderPicker
+        visible={showAudioFolderPicker}
+        onSelect={(path) => patch({ output_directory: path })}
+        onClose={() => setShowAudioFolderPicker(false)}
+        title="Seleccionar carpeta de salida de audios"
+      />
     </ScrollView>
   );
 }
