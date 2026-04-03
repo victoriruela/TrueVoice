@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"truevoice/internal/config"
+	"truevoice/internal/contexts"
 	"truevoice/internal/generation"
 	"truevoice/internal/race"
 	"truevoice/internal/voices"
@@ -16,19 +17,21 @@ import (
 
 // Server holds all shared state and provides the HTTP router.
 type Server struct {
-	cfg    *config.Store
-	gen    *generation.Manager
-	voices *voices.Manager
-	race   *race.Manager
-	router chi.Router
+	cfg      *config.Store
+	gen      *generation.Manager
+	voices   *voices.Manager
+	race     *race.Manager
+	contexts *contexts.Manager
+	router   chi.Router
 }
 
 func New(cfg *config.Store) *Server {
 	s := &Server{
-		cfg:    cfg,
-		gen:    generation.NewManager(cfg),
-		voices: voices.NewManager(cfg),
-		race:   race.NewManager(cfg),
+		cfg:      cfg,
+		gen:      generation.NewManager(cfg),
+		voices:   voices.NewManager(cfg),
+		race:     race.NewManager(cfg),
+		contexts: contexts.NewManager(cfg),
 	}
 	s.router = s.buildRouter()
 	return s
@@ -93,6 +96,14 @@ func (s *Server) buildRouter() chi.Router {
 	// Directory browse
 	r.Get("/browse/drives", s.browseDrives)
 	r.Get("/browse/folders", s.browseFolders)
+
+	// Contexts
+	r.Get("/contexts", s.contexts.ListHandler)
+	r.Get("/contexts/state", s.contexts.StateHandler)
+	r.Get("/contexts/{name}", s.contexts.GetHandler)
+	r.Post("/contexts/save", s.contexts.SaveHandler)
+	r.Post("/contexts/load/{name}", s.contexts.LoadHandler)
+	r.Delete("/contexts/{name}", s.contexts.DeleteHandler)
 
 	// Race
 	r.Post("/race/parse", s.race.ParseHandler)

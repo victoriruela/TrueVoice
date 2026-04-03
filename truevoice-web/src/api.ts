@@ -153,6 +153,35 @@ export interface BrowseResult {
 export const browseFolders = (path: string) =>
   api.get<BrowseResult>("/browse/folders", { params: { path } });
 
+/* ── Contexts ───────────────────────────────────────────────────────── */
+export interface ContextTemplateData {
+  name: string;
+  intro_text: string;
+  events_text: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface ContextInUseState {
+  in_use_name: string;
+  in_use_intro_text: string;
+  in_use_events_text: string;
+}
+export const listContexts = () =>
+  api.get<{ contexts: ContextTemplateData[] }>("/contexts");
+export const getContextState = () =>
+  api.get<ContextInUseState>("/contexts/state");
+export const getContext = (name: string) =>
+  api.get<ContextTemplateData>(`/contexts/${encodeURIComponent(name)}`);
+export const saveContext = (name: string, introText: string, eventsText: string) =>
+  api.post<{ context: ContextTemplateData; state: ContextInUseState }>(
+    "/contexts/save",
+    { name, intro_text: introText, events_text: eventsText },
+  );
+export const loadContext = (name: string) =>
+  api.post<ContextInUseState>(`/contexts/load/${encodeURIComponent(name)}`);
+export const deleteContext = (name: string) =>
+  api.delete(`/contexts/${encodeURIComponent(name)}`);
+
 /* ── Race ───────────────────────────────────────────────────────────── */
 export interface RaceHeaderData {
   track_event: string;

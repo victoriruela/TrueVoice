@@ -101,20 +101,22 @@ func (m *Manager) IntroHandler(w http.ResponseWriter, r *http.Request) {
 		gridSection += fmt.Sprintf(" El resto de pilotos salen en estas posiciones: %s.", strings.Join(restParts, ", "))
 	}
 
+	introContext := strings.TrimSpace(m.cfg.GetString("context_in_use_intro_text"))
+	if introContext == "" {
+		writeError(w, http.StatusBadRequest, "No hay contexto de introduccion en uso. Carga uno desde la pestana Contexto.")
+		return
+	}
+
 	prompt := fmt.Sprintf(
-		"Eres el comentarista oficial de una carrera de Fórmula 1. "+
-			"Presenta la carrera de forma emocionante y natural. "+
-			"La carrera se celebra en el circuito '%s', "+
-			"con una longitud de %.0f metros por vuelta, "+
-			"a lo largo de %d vueltas. "+
-			"Participan %d pilotos. "+
-			"%s "+
-			"Narra la parrilla de salida empezando por el primero. "+
-			"Para los 3 primeros pilotos (%s), haz una apreciación graciosa y positiva (en tono de broma amigable) sobre cada uno. "+
-			"Para el resto de pilotos, menciona únicamente su posición de salida. "+
-			"IMPORTANTE: Todos los números deben escribirse con palabras (ej. 'uno' en lugar de '1'). NO uses dígitos numéricos. "+
-			"Responde SOLO con el texto de presentación, sin títulos ni explicaciones adicionales.",
-		h.TrackEvent, h.TrackLength, h.RaceLaps, h.NumDrivers, gridSection, top3Str,
+		"CONTEXTO EN USO (OBLIGATORIO):\n%s\n\n"+
+			"DATOS DE CARRERA:\n"+
+			"- Circuito: %s\n"+
+			"- Longitud por vuelta (metros): %.0f\n"+
+			"- Vueltas: %d\n"+
+			"- Pilotos: %d\n"+
+			"- Parrilla: %s\n\n"+
+			"TAREA: Genera el texto de introduccion para esta carrera usando exclusivamente el contexto en uso y los datos de carrera.",
+		introContext, h.TrackEvent, h.TrackLength, h.RaceLaps, h.NumDrivers, gridSection,
 	)
 
 	text := callOllama(ollamaURL, ollamaModel, prompt, 0.85, 42)
@@ -133,56 +135,35 @@ func (m *Manager) DescriptionsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ollamaURL, ollamaModel := m.resolveOllamaConfig(r)
-
-	typeHints := map[int]string{
-		1: "adelantamiento en carrera de Fórmula 1",
-		2: "choque o contacto entre dos pilotos en carrera de Fórmula 1",
-		3: "choque de un piloto contra el muro o barrera en carrera de Fórmula 1",
-		4: "penalización (STOP and GO o Drive Through) impuesta a un piloto",
-		5: "entrada a boxes de un piloto",
+	eventsContext := strings.TrimSpace(m.cfg.GetString("context_in_use_events_text"))
+	if eventsContext == "" {
+		writeError(w, http.StatusBadRequest, "No hay contexto de eventos en uso. Carga uno desde la pestana Contexto.")
+		return
 	}
 
 	var usedDescs []string
 
 	for i := range req.Events {
 		ev := &req.Events[i]
-		hint := typeHints[ev.EventType]
-		if hint == "" {
-			hint = "carrera"
-		}
-
-		avoidHint := ""
+		narrativeMemory := "Sin memoria narrativa previa."
 		if len(usedDescs) > 0 {
 			lastFew := usedDescs
 			if len(lastFew) > 5 {
 				lastFew = lastFew[len(lastFew)-5:]
 			}
-			avoidHint = fmt.Sprintf("\nEvita usar frases similares a estas descripciones anteriores: %s",
-				strings.Join(lastFew, "; "))
-		}
-
-		overtakeHint := ""
-		if ev.EventType == 1 && strings.Contains(ev.Summary, " adelanta a ") {
-			driverA := strings.Split(ev.Summary, " adelanta a ")[0]
-			prevCount := 0
-			for j := 0; j < i; j++ {
-				if req.Events[j].EventType == 1 && strings.HasPrefix(req.Events[j].Summary, driverA+" adelanta a ") {
-					prevCount++
-				}
-			}
-			if prevCount >= 3 {
-				overtakeHint = fmt.Sprintf(" Menciona que este piloto ya lleva %d adelantamientos en la carrera.", prevCount)
-			}
+			narrativeMemory = strings.Join(lastFew, "\n- ")
+			narrativeMemory = "- " + narrativeMemory
 		}
 
 		prompt := fmt.Sprintf(
-			"Eres un comentarista deportivo de Fórmula 1 apasionado y dinámico. "+
-				"Genera UNA SOLA frase corta (máximo 25 palabras) y emocionante describiendo este evento de %s: "+
-				"'%s' en la vuelta %d. "+
-				"La descripción debe ser variada, natural y diferente a las anteriores.%s "+
-				"IMPORTANTE: Todos los números deben escribirse con palabras (ej. 'uno' en lugar de '1'). NO uses dígitos numéricos. "+
-				"Responde SOLO con la frase, sin comillas ni explicaciones adicionales.%s",
-			hint, ev.Summary, ev.Lap, overtakeHint, avoidHint,
+			"CONTEXTO EN USO (OBLIGATORIO):\n%s\n\n"+
+				"MEMORIA NARRATIVA PREVIA:\n%s\n\n"+
+				"EVENTO ACTUAL:\n"+
+				"- Tipo: %d\n"+
+				"- Vuelta: %d\n"+
+				"- Resumen: %s\n\n"+
+				"TAREA: Genera la frase de este evento usando exclusivamente el contexto en uso, la memoria narrativa y el evento actual.",
+			eventsContext, narrativeMemory, ev.EventType, ev.Lap, ev.Summary,
 		)
 
 		seed := i*37 + 13

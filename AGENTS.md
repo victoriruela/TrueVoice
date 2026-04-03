@@ -7,6 +7,53 @@ Contexto obligatorio para cualquier agente que trabaje en este repositorio.
 > Cualquier cambio en implementacion o despliegue debe actualizar este archivo en el mismo commit.
 > Secciones minimas a mantener: Mapa de Archivos, API Endpoints, Entorno de Desarrollo, Arquitectura.
 
+---
+
+## REGLAS OBLIGATORIAS DE DESARROLLO
+
+### 1. Workflow de commits
+
+- **Un commit por cambio logico.** No acumular cambios sin commitear.
+- **NUNCA eliminar ni sobreescribir archivos fuente que funcionan** sin antes verificar que el reemplazo compila y la app se carga correctamente.
+- Todos los archivos fuente del frontend (`truevoice-web/app/*.tsx`, `truevoice-web/src/**`) **DEBEN estar commiteados en git**. No depender de archivos que solo existen en disco.
+
+### 2. Tests obligatorios
+
+- **Es OBLIGATORIO ejecutar tests de integracion y E2E antes de dar por finalizado cualquier cambio.**
+- Backend Go: `cd truevoice-go && go test ./...`
+- Frontend TypeScript: `cd truevoice-web && node node_modules\typescript\bin\tsc --noEmit`
+- Tests E2E de API: `cd truevoice-go && go test ./internal/server -run TestE2E -v`
+- Si un test falla, el cambio **NO esta completo**. Corregir antes de continuar.
+
+### 3. Build y verificacion visual
+
+Despues de cambios frontend:
+```bash
+cd truevoice-web
+node node_modules\.bin\expo.cmd export --platform web
+# Copiar dist/ a truevoice-go/internal/server/webdist/
+cd ..\truevoice-go
+go build ./...
+go run .\cmd\truevoice
+# Verificar visualmente TODAS las pestañas en http://localhost:8000/app
+```
+
+### 4. Arquitectura del frontend — NO MODIFICAR
+
+- El frontend usa **App.tsx con sistema de pestañas manual** (TabKey, TABS array, display flex/none).
+- **NO usar Expo Router** (`app/_layout.tsx` es vestigial, no se usa en produccion).
+- `index.ts` importa `App.tsx` via `registerRootComponent(App)`.
+- Cada pantalla se importa directamente en App.tsx desde `./app/<nombre>`.
+
+### 5. Lectura de AGENTS.md por directorio
+
+Antes de modificar codigo en un subdirectorio, **leer el AGENTS.md de ese directorio** si existe.
+Directorios que tienen AGENTS.md propio:
+- `truevoice-go/AGENTS.md`
+- `truevoice-web/AGENTS.md`
+
+---
+
 ## Resumen del Proyecto
 
 TrueVoice es una aplicacion TTS con clonacion de voz basada en VibeVoice.
@@ -26,9 +73,11 @@ Go HTTP Server (:8000)  <- truevoice-go/cmd/truevoice/main.go
   |  API + static web embed
   |
   +- internal/generation  -> bootstrap runtime Python + subprocess vibevoice_app.py
-  +- internal/race        -> parser XML rFactor2 + export Excel
+  +- internal/race        -> parser XML rFactor2 + export Excel/CSV
+  |                        + prompts de intro/eventos usando contexto narrativo en uso
   +- internal/voices      -> resolucion de voces
   +- internal/config      -> persistencia frontend_config.json
+  +- internal/contexts    -> plantillas de contexto para narracion
 
 Python sidecar:
   vibevoice_app.py -> inference_wrapper.py -> VibeVoice model (HuggingFace)
@@ -40,17 +89,32 @@ Python sidecar:
 TrueVoice/
 +- truevoice-go/
 |  +- cmd/truevoice/main.go
-|  +- internal/server/
-|  +- internal/generation/
-|  +- internal/race/
-|  +- internal/voices/
-|  +- internal/config/
+|  +- internal/server/              # HTTP router, handlers, static embed
+|  +- internal/generation/          # TTS generation + sidecar management
+|  +- internal/race/                # Race XML parser, sessions, CSV export
+|  +- internal/voices/              # Voice file resolution
+|  +- internal/config/              # frontend_config.json persistence
+|  +- internal/contexts/            # Context templates for narration
+|  +- AGENTS.md                     # Backend-specific rules
 +- truevoice-web/                    # Fuente Expo Web
+|  +- App.tsx                        # Entry point con sistema de tabs manual
+|  +- index.ts                       # registerRootComponent(App)
+|  +- app/carrera.tsx                # Pantalla Carrera (narracion)
+|  +- app/generar.tsx                # Pantalla Generar (TTS tasks)
+|  +- app/contexto.tsx               # Pantalla Contexto (plantillas)
+|  +- app/outputs.tsx                # Pantalla Audios
+|  +- app/voices.tsx                 # Pantalla Voces
+|  +- app/settings.tsx               # Pantalla Config
+|  +- src/api.ts                     # Cliente HTTP axios
+|  +- src/theme.ts                   # Tema y estilos compartidos
+|  +- src/stores/                    # Zustand stores
+|  +- AGENTS.md                      # Frontend-specific rules
 +- vibevoice_app.py                  # CLI sidecar
 +- inference_wrapper.py              # Wrapper de inferencia
 +- patches.py                        # Parches de compatibilidad VibeVoice
 +- VibeVoice/                        # Paquete VibeVoice
 +- frontend_config.json              # Config persistente
++- contexts/                         # Contextos JSON storage
 +- voices/
 +- api_outputs/
 +- temp_outputs/
@@ -95,6 +159,10 @@ Dependencias Python del sidecar:
 - POST /setup/bootstrap
 - GET /models
 
+### Config
+- GET /config
+- PUT /config
+
 ### Voces
 - GET /voices
 - POST /voices/upload
@@ -108,13 +176,37 @@ Dependencias Python del sidecar:
 - POST /cancel_all
 - POST /confirm_save
 
-### Race
-- POST /race/excel?name=<nombre>
-
-### Mantenimiento
+### Outputs
 - GET /outputs
 - DELETE /outputs/delete
 - POST /cleanup_temp
+
+### Contextos
+- GET /contexts
+- GET /contexts/state
+- GET /contexts/{name}
+- POST /contexts/save  # si el nombre ya existe, guarda como "Nombre (1)", "Nombre (2)", etc.
+- POST /contexts/load/{name}
+- DELETE /contexts/{name}
+
+### Race
+- POST /race/parse
+- POST /race/intro
+- POST /race/descriptions
+- GET /race/sessions
+- GET /race/sessions/{name}
+- POST /race/sessions/{name}
+- DELETE /race/sessions/{name}
+- POST /race/csv?name=<nombre>
+- GET /race/sessions/{name}/csv
+
+### Ollama proxy
+- GET /ollama/models
+- POST /ollama/generate
+
+### Browse (directory picker)
+- GET /browse/drives
+- GET /browse/folders
 
 ## Pipeline de Sintesis
 
