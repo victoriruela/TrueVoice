@@ -16,6 +16,8 @@ torch.set_num_interop_threads(max(1, _cpu_count // 2))
 
 project_root = os.path.dirname(os.path.abspath(__file__))
 vibe_voice_repo = os.path.join(project_root, "VibeVoice")
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 if vibe_voice_repo not in sys.path:
     sys.path.insert(0, vibe_voice_repo)
 

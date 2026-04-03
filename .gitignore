@@ -1,5 +1,3 @@
 # Prevent accidental commits of large archive files
 *.zip
 
-# Explicitly ignore generated docker bundle
-docker_app.zip
