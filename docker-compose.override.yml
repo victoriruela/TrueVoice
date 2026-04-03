@@ -1,9 +1,0 @@
-﻿# AUTO-GENERADO por generate_drives.ps1 â€” NO editar manualmente.
-# Se regenera automaticamente al ejecutar deploy.bat o generate_drives.ps1.
-services:
-  api:
-    volumes:
-      - c:/:/mnt/c
-  frontend:
-    volumes:
-      - c:/:/mnt/c

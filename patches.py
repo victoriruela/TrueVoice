@@ -1,4 +1,35 @@
 import torch
+import types
+
+if not hasattr(torch, "compiler"):
+    def _noop_disable(*args, **kwargs):
+        def _decorator(fn):
+            return fn
+        return _decorator
+
+    torch.compiler = types.SimpleNamespace(disable=_noop_disable)
+
+if not hasattr(torch, "float8_e4m3fn"):
+    torch.float8_e4m3fn = torch.float16
+
+if not hasattr(torch, "float8_e5m2"):
+    torch.float8_e5m2 = torch.float16
+
+def _fake_device_namespace():
+    return types.SimpleNamespace(
+        empty_cache=lambda: None,
+        is_available=lambda: False,
+        device_count=lambda: 0,
+        current_device=lambda: 0,
+    )
+
+if not hasattr(torch, "xpu"):
+    torch.xpu = _fake_device_namespace()
+
+for _dev in ("mps", "npu", "mlu", "musa", "sdaa"):
+    if not hasattr(torch, _dev):
+        setattr(torch, _dev, _fake_device_namespace())
+
 import transformers
 from transformers import modeling_utils
 
