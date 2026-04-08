@@ -155,6 +155,7 @@ Dependencias Python del sidecar:
 - soundfile, scipy, datasets, diffusers, peft, librosa
 - VibeVoice editable (`pip install -e ./VibeVoice`)
 - En CPU, `inference_wrapper.py` fuerza `attn_implementation="eager"` para evitar el requisito SDPA de Transformers en runtimes con torch antiguo.
+- `patches.py` aplica compatibilidad para `load_state_dict(assign=...)` cuando Transformers nuevo corre sobre torch antiguo.
 
 ## Variables de Entorno
 
@@ -261,6 +262,7 @@ powershell -ExecutionPolicy Bypass -File .\build_installer.ps1
 Notas de instalacion:
 - El instalador crea acceso directo de escritorio (`TrueVoice.lnk`) al launcher.
 - Durante la instalacion se ejecuta bootstrap del runtime para descargar dependencias de VibeVoice y el modelo `microsoft/VibeVoice-1.5b`.
+- El empaquetado con IExpress en `dist/build_installer.ps1` espera la finalizacion del proceso para evitar fallos por timeout en equipos lentos.
 
 Servicios:
 - App + API: http://localhost:8000/app

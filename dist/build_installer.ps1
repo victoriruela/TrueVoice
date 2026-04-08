@@ -358,11 +358,26 @@ $iexpress = Join-Path $env:WINDIR 'System32\\iexpress.exe'
 if (-not (Test-Path $iexpress)) {
   throw 'No se encontro iexpress.exe en el sistema.'
 }
-& $iexpress /N /Q $sedPath
-$iexpressExit = $LASTEXITCODE
+$iexpressProc = Start-Process -FilePath $iexpress -ArgumentList @('/N', '/Q', $sedPath) -PassThru
 
-for ($i = 0; $i -lt 60 -and -not (Test-Path $installerPath); $i++) {
-  Start-Sleep -Seconds 1
+$maxWaitSeconds = 1800
+$elapsedSeconds = 0
+while (-not $iexpressProc.HasExited -and $elapsedSeconds -lt $maxWaitSeconds) {
+  Wait-Process -Id $iexpressProc.Id -Timeout 1 -ErrorAction SilentlyContinue
+  $elapsedSeconds++
+}
+
+if (-not $iexpressProc.HasExited) {
+  try { Stop-Process -Id $iexpressProc.Id -Force } catch {}
+  throw "Timeout esperando IExpress despues de $maxWaitSeconds segundos."
+}
+
+$iexpressExit = $iexpressProc.ExitCode
+
+if (-not (Test-Path $installerPath)) {
+  for ($i = 0; $i -lt 120 -and -not (Test-Path $installerPath); $i++) {
+    [System.Threading.Thread]::Sleep(1000)
+  }
 }
 
 $installerInfo = Get-Item -LiteralPath $installerPath -ErrorAction SilentlyContinue
