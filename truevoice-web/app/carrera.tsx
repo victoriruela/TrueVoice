@@ -253,6 +253,14 @@ function CarreraContent() {
     [],
   );
 
+  const handlePluginJsonFile = useCallback(
+    async (e: any) => {
+      const file = e.target?.files?.[0];
+      if (file) await store.parsePluginJson(file);
+    },
+    [],
+  );
+
   // Wait for generation progress to complete
   const waitForProgress = useCallback(async (audioId: string): Promise<boolean> => {
     const maxAttempts = Math.ceil(100);
@@ -654,6 +662,18 @@ function CarreraContent() {
             type="file"
             accept=".xml"
             onChange={handleXmlFile}
+            style={{ color: colors.text, marginBottom: 8 }}
+          />
+        </View>
+
+        {/* ── Plugin JSON upload ────────────────────────────────────── */}
+        <View style={shared.card}>
+          <Text style={shared.label}>Archivo JSON (Plugin TrueVoice rF2)</Text>
+          {/* @ts-ignore - HTML input element for web */}
+          <input
+            type="file"
+            accept=".json"
+            onChange={handlePluginJsonFile}
             style={{ color: colors.text, marginBottom: 8 }}
           />
         </View>

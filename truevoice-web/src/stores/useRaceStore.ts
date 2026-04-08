@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   raceParse,
+  raceParsePlugin,
   raceGenerateIntro,
   raceGenerateDescriptions,
   raceListSessions,
@@ -33,6 +34,7 @@ interface RaceStore {
   error: string | null;
 
   parseXml: (file: File) => Promise<void>;
+  parsePluginJson: (file: File) => Promise<void>;
   generateIntro: () => Promise<void>;
   generateDescriptions: () => Promise<void>;
   generateDescriptionForEvent: (index: number) => Promise<void>;
@@ -257,6 +259,28 @@ export const useRaceStore = create<RaceStore>((set, get) => {
         persistNow();
       } catch (err: any) {
         set({ error: err?.response?.data?.detail || "Error parsing XML" });
+      } finally {
+        set({ loading: false });
+      }
+    },
+
+    parsePluginJson: async (file) => {
+      set({ loading: true, error: null });
+      try {
+        const { data } = await raceParsePlugin(file);
+        const header = normalizeHeader(data.header);
+        set({
+          header,
+          events: normalizeEvents(data.events),
+          introText: header?.intro_text || "",
+          eventAudios: {},
+          introAudio: "",
+          hiddenEventIndices: new Set(),
+          selectedEventIndices: new Set(),
+        });
+        persistNow();
+      } catch (err: any) {
+        set({ error: err?.response?.data?.detail || "Error parsing plugin JSON" });
       } finally {
         set({ loading: false });
       }

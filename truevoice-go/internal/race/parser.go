@@ -24,9 +24,30 @@ type RaceHeader struct {
 type RaceEvent struct {
 	Lap         int     `json:"lap"`
 	Timestamp   float64 `json:"timestamp"`
-	EventType   int     `json:"event_type"` // 1=overtake 2=driver collision 3=wall 4=penalty 5=pit
+	EventType   int     `json:"event_type"` // 1=overtake 2=driver collision 3=wall 4=penalty 5=pit 6=off_track 7=proximity 8=fastest_lap
 	Summary     string  `json:"summary"`
 	Description string  `json:"description"`
+
+	// Extended fields from plugin JSON (omitempty for backward compat)
+	Position        *EventPosition   `json:"position,omitempty"`
+	DriverPositions []DriverSnapshot `json:"driver_positions,omitempty"`
+	ExtraData       map[string]any   `json:"extra_data,omitempty"`
+}
+
+// EventPosition holds world coordinates from the rF2 plugin.
+type EventPosition struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+	Z float64 `json:"z"`
+}
+
+// DriverSnapshot holds a single driver's state at the moment of an event.
+type DriverSnapshot struct {
+	Name    string        `json:"name"`
+	Place   int           `json:"place"`
+	Pos     EventPosition `json:"pos"`
+	LapDist float64       `json:"lap_dist"`
+	Lap     int           `json:"lap"`
 }
 
 type RaceSession struct {

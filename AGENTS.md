@@ -191,6 +191,7 @@ Dependencias Python del sidecar:
 
 ### Race
 - POST /race/parse
+- POST /race/parse-plugin
 - POST /race/intro
 - POST /race/descriptions
 - GET /race/sessions

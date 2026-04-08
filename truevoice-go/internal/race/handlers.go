@@ -63,6 +63,28 @@ func (m *Manager) ParseHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ── POST /race/parse-plugin ─────────────────────────────────────────
+
+func (m *Manager) ParsePluginHandler(w http.ResponseWriter, r *http.Request) {
+	data, err := io.ReadAll(io.LimitReader(r.Body, 50<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Cannot read request body")
+		return
+	}
+	defer r.Body.Close()
+
+	header, events, err := ParsePluginJSON(data)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"header": header,
+		"events": events,
+	})
+}
+
 // ── POST /race/intro ───────────────────────────────────────────────
 
 func (m *Manager) IntroHandler(w http.ResponseWriter, r *http.Request) {

@@ -197,6 +197,9 @@ export interface RaceEventData {
   event_type: number;
   summary: string;
   description: string;
+  position?: { x: number; y: number; z: number };
+  driver_positions?: { name: string; place: number; pos: { x: number; y: number; z: number }; lap_dist: number; lap: number }[];
+  extra_data?: Record<string, any>;
 }
 export const raceParse = (file: File) => {
   const fd = new FormData();
@@ -206,6 +209,13 @@ export const raceParse = (file: File) => {
     fd,
   );
 };
+export const raceParsePlugin = (file: File) =>
+  file.text().then((text) =>
+    api.post<{ header: RaceHeaderData; events: RaceEventData[] }>(
+      "/race/parse-plugin",
+      JSON.parse(text),
+    ),
+  );
 export const raceGenerateIntro = (header: RaceHeaderData) =>
   api.post<{ intro_text: string }>("/race/intro", { header });
 export const raceGenerateDescriptions = (events: RaceEventData[]) =>

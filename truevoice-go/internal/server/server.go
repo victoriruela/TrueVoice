@@ -107,6 +107,7 @@ func (s *Server) buildRouter() chi.Router {
 
 	// Race
 	r.Post("/race/parse", s.race.ParseHandler)
+	r.Post("/race/parse-plugin", s.race.ParsePluginHandler)
 	r.Post("/race/intro", s.race.IntroHandler)
 	r.Post("/race/descriptions", s.race.DescriptionsHandler)
 	r.Get("/race/sessions", s.race.ListSessionsHandler)
