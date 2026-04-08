@@ -52,6 +52,18 @@ Directorios que tienen AGENTS.md propio:
 - `truevoice-go/AGENTS.md`
 - `truevoice-web/AGENTS.md`
 
+### 6. Release e instalador (obligatorio)
+
+- **Cada vez que se cree una release, es obligatorio regenerar el instalador Windows en `dist/TrueVoiceInstaller.exe`.**
+- Comando canonico:
+  - `cd dist`
+  - `powershell -ExecutionPolicy Bypass -File .\build_installer.ps1`
+- El instalador debe:
+  - Crear acceso directo de escritorio `TrueVoice.lnk`.
+  - Ejecutar bootstrap durante la instalacion.
+  - Descargar en instalacion (no en primer arranque) VibeVoice y el modelo `microsoft/VibeVoice-1.5b`.
+  - Mostrar progreso/estado de instalacion (instalando, dependencias, descarga de modelo, etc.).
+
 ---
 
 ## Resumen del Proyecto
@@ -119,6 +131,9 @@ TrueVoice/
 +- api_outputs/
 +- temp_outputs/
 +- race_sessions/
++- dist/                            # Instalador Windows + debug launcher
+- AGENTS.md
+- README.md
 +- AGENTS.md
 +- README.md
 +- GIT.md
@@ -231,6 +246,19 @@ node .\node_modules\expo\bin\cli export --platform web
 cd ..\truevoice-go
 go run .\cmd\truevoice
 ```
+
+### Build instalador Windows (single EXE)
+
+```bash
+cd dist
+powershell -ExecutionPolicy Bypass -File .\build_installer.ps1
+# Genera: dist/TrueVoiceInstaller.exe
+# Incluye debug_launcher.cmd y debug_launcher.ps1
+```
+
+Notas de instalacion:
+- El instalador crea acceso directo de escritorio (`TrueVoice.lnk`) al launcher.
+- Durante la instalacion se ejecuta bootstrap del runtime para descargar dependencias de VibeVoice y el modelo `microsoft/VibeVoice-1.5b`.
 
 Servicios:
 - App + API: http://localhost:8000/app

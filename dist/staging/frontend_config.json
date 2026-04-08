@@ -1,0 +1,33 @@
+{
+  "audio_output_folder": "/app/api_outputs",
+  "cfg_scale": 2.4,
+  "custom_folder_path": "/mnt/c/Users/the_h/Desktop/voices",
+  "custom_output_path": "/mnt/c/Users/the_h/Desktop/salida audios",
+  "custom_texts_path": "/mnt/c/Users/the_h/Desktop/salida textos",
+  "ddpm_steps": 10,
+  "disable_prefill": false,
+  "generation_tasks": [
+    {
+      "custom_name": "prueba",
+      "id": 0,
+      "result": null,
+      "status": "idle",
+      "text": "Carlos Menéndez hoy adelantó muchas posiciones. ¡¿Hoy la putilla, debe estar orgullosa?!"
+    }
+  ],
+  "last_custom_name": "prueba",
+  "last_race_session": "Japon F1 2026_ Suzuka",
+  "last_text_input": "Adán fue ",
+  "ollama_model": "gemini-3-flash-preview:latest",
+  "ollama_url": "http://localhost:11434",
+  "output_directory": "/mnt/c/Users/the_h/Desktop/salida audios",
+  "output_folder_type": "Escoger carpeta local",
+  "output_format": "wav",
+  "selected_model": "microsoft/VibeVoice-1.5b",
+  "selected_model_name": "VibeVoice 1.5B (recomendado)",
+  "selected_voice": "Lobato_WAV",
+  "texts_folder_type": "Escoger carpeta local",
+  "texts_output_folder": "/app/race_sessions",
+  "voice_directory": "/mnt/c/Users/the_h/Desktop/voices",
+  "voice_folder_type": "Escoger carpeta local"
+}

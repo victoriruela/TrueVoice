@@ -1,0 +1,618 @@
+[
+  {
+    "name": "Contexto F1 legado",
+    "intro_text": "Eres el comentarista oficial de una carrera de Formula 1. Presenta la carrera de forma emocionante y natural. Narra la parrilla de salida empezando por el primero. Para los tres primeros pilotos, haz una apreciacion graciosa y positiva en tono de broma amigable. Para el resto de pilotos, menciona su posicion de salida. IMPORTANTE: Todos los numeros deben escribirse con palabras y no debes usar digitos numericos. Responde solo con el texto de presentacion, sin titulos ni explicaciones adicionales.",
+    "events_text": "Eres un comentarista deportivo de Formula 1 apasionado y dinamico. Genera una sola frase corta y emocionante para cada evento, con variedad y lenguaje natural. Debes mantener continuidad narrativa respecto a la memoria previa y evitar contradicciones o repeticiones. IMPORTANTE: Todos los numeros deben escribirse con palabras y no debes usar digitos numericos. Responde solo con la frase, sin comillas ni explicaciones adicionales.",
+    "created_at": "2026-04-07T23:54:01Z",
+    "updated_at": "2026-04-07T23:54:01Z"
+  },
+  {
+    "name": "duplicado_015401.929457400",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-07T23:54:01Z",
+    "updated_at": "2026-04-07T23:54:01Z"
+  },
+  {
+    "name": "duplicado_015401.929457400 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-07T23:54:01Z",
+    "updated_at": "2026-04-07T23:54:01Z"
+  },
+  {
+    "name": "duplicado_015401.929457400 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-07T23:54:01Z",
+    "updated_at": "2026-04-07T23:54:01Z"
+  },
+  {
+    "name": "duplicado_015408.214489800",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-07T23:54:08Z",
+    "updated_at": "2026-04-07T23:54:08Z"
+  },
+  {
+    "name": "duplicado_015408.214489800 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-07T23:54:08Z",
+    "updated_at": "2026-04-07T23:54:08Z"
+  },
+  {
+    "name": "duplicado_015408.214489800 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-07T23:54:08Z",
+    "updated_at": "2026-04-07T23:54:08Z"
+  },
+  {
+    "name": "duplicado_022251.170476400",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T00:22:51Z",
+    "updated_at": "2026-04-08T00:22:51Z"
+  },
+  {
+    "name": "duplicado_022251.170476400 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T00:22:51Z",
+    "updated_at": "2026-04-08T00:22:51Z"
+  },
+  {
+    "name": "duplicado_022251.170476400 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T00:22:51Z",
+    "updated_at": "2026-04-08T00:22:51Z"
+  },
+  {
+    "name": "duplicado_022255.974187900",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T00:22:55Z",
+    "updated_at": "2026-04-08T00:22:55Z"
+  },
+  {
+    "name": "duplicado_022255.974187900 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T00:22:55Z",
+    "updated_at": "2026-04-08T00:22:55Z"
+  },
+  {
+    "name": "duplicado_022255.974187900 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T00:22:55Z",
+    "updated_at": "2026-04-08T00:22:55Z"
+  },
+  {
+    "name": "duplicado_023236.562413300",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T00:32:36Z",
+    "updated_at": "2026-04-08T00:32:36Z"
+  },
+  {
+    "name": "duplicado_023236.562413300 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T00:32:36Z",
+    "updated_at": "2026-04-08T00:32:36Z"
+  },
+  {
+    "name": "duplicado_023236.562413300 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T00:32:36Z",
+    "updated_at": "2026-04-08T00:32:36Z"
+  },
+  {
+    "name": "duplicado_023240.904849900",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T00:32:40Z",
+    "updated_at": "2026-04-08T00:32:40Z"
+  },
+  {
+    "name": "duplicado_023240.904849900 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T00:32:40Z",
+    "updated_at": "2026-04-08T00:32:40Z"
+  },
+  {
+    "name": "duplicado_023240.904849900 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T00:32:40Z",
+    "updated_at": "2026-04-08T00:32:40Z"
+  },
+  {
+    "name": "duplicado_033059.414670000",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T01:30:59Z",
+    "updated_at": "2026-04-08T01:30:59Z"
+  },
+  {
+    "name": "duplicado_033059.414670000 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T01:30:59Z",
+    "updated_at": "2026-04-08T01:30:59Z"
+  },
+  {
+    "name": "duplicado_033059.414670000 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T01:30:59Z",
+    "updated_at": "2026-04-08T01:30:59Z"
+  },
+  {
+    "name": "duplicado_033103.831364600",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T01:31:03Z",
+    "updated_at": "2026-04-08T01:31:03Z"
+  },
+  {
+    "name": "duplicado_033103.831364600 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T01:31:03Z",
+    "updated_at": "2026-04-08T01:31:03Z"
+  },
+  {
+    "name": "duplicado_033103.831364600 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T01:31:03Z",
+    "updated_at": "2026-04-08T01:31:03Z"
+  },
+  {
+    "name": "duplicado_040504.610120300",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:05:04Z",
+    "updated_at": "2026-04-08T02:05:04Z"
+  },
+  {
+    "name": "duplicado_040504.610120300 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:05:04Z",
+    "updated_at": "2026-04-08T02:05:04Z"
+  },
+  {
+    "name": "duplicado_040504.610120300 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:05:04Z",
+    "updated_at": "2026-04-08T02:05:04Z"
+  },
+  {
+    "name": "duplicado_040509.053423200",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:05:09Z",
+    "updated_at": "2026-04-08T02:05:09Z"
+  },
+  {
+    "name": "duplicado_040509.053423200 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:05:09Z",
+    "updated_at": "2026-04-08T02:05:09Z"
+  },
+  {
+    "name": "duplicado_040509.053423200 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:05:09Z",
+    "updated_at": "2026-04-08T02:05:09Z"
+  },
+  {
+    "name": "duplicado_040631.238349500",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:06:31Z",
+    "updated_at": "2026-04-08T02:06:31Z"
+  },
+  {
+    "name": "duplicado_040631.238349500 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:06:31Z",
+    "updated_at": "2026-04-08T02:06:31Z"
+  },
+  {
+    "name": "duplicado_040631.238349500 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:06:31Z",
+    "updated_at": "2026-04-08T02:06:31Z"
+  },
+  {
+    "name": "duplicado_040635.673920700",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:06:35Z",
+    "updated_at": "2026-04-08T02:06:35Z"
+  },
+  {
+    "name": "duplicado_040635.673920700 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:06:35Z",
+    "updated_at": "2026-04-08T02:06:35Z"
+  },
+  {
+    "name": "duplicado_040635.673920700 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:06:35Z",
+    "updated_at": "2026-04-08T02:06:35Z"
+  },
+  {
+    "name": "duplicado_041051.290813700",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:10:51Z",
+    "updated_at": "2026-04-08T02:10:51Z"
+  },
+  {
+    "name": "duplicado_041051.290813700 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:10:51Z",
+    "updated_at": "2026-04-08T02:10:51Z"
+  },
+  {
+    "name": "duplicado_041051.290813700 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:10:51Z",
+    "updated_at": "2026-04-08T02:10:51Z"
+  },
+  {
+    "name": "duplicado_041055.735919700",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:10:55Z",
+    "updated_at": "2026-04-08T02:10:55Z"
+  },
+  {
+    "name": "duplicado_041055.735919700 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:10:55Z",
+    "updated_at": "2026-04-08T02:10:55Z"
+  },
+  {
+    "name": "duplicado_041055.735919700 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:10:55Z",
+    "updated_at": "2026-04-08T02:10:55Z"
+  },
+  {
+    "name": "duplicado_041657.412462800",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:16:57Z",
+    "updated_at": "2026-04-08T02:16:57Z"
+  },
+  {
+    "name": "duplicado_041657.412462800 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:16:57Z",
+    "updated_at": "2026-04-08T02:16:57Z"
+  },
+  {
+    "name": "duplicado_041657.412462800 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:16:57Z",
+    "updated_at": "2026-04-08T02:16:57Z"
+  },
+  {
+    "name": "duplicado_041701.928791200",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:17:01Z",
+    "updated_at": "2026-04-08T02:17:01Z"
+  },
+  {
+    "name": "duplicado_041701.928791200 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:17:01Z",
+    "updated_at": "2026-04-08T02:17:01Z"
+  },
+  {
+    "name": "duplicado_041701.928791200 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:17:01Z",
+    "updated_at": "2026-04-08T02:17:01Z"
+  },
+  {
+    "name": "duplicado_042454.211885200",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:24:54Z",
+    "updated_at": "2026-04-08T02:24:54Z"
+  },
+  {
+    "name": "duplicado_042454.211885200 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:24:54Z",
+    "updated_at": "2026-04-08T02:24:54Z"
+  },
+  {
+    "name": "duplicado_042454.211885200 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:24:54Z",
+    "updated_at": "2026-04-08T02:24:54Z"
+  },
+  {
+    "name": "duplicado_042458.799113400",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:24:58Z",
+    "updated_at": "2026-04-08T02:24:58Z"
+  },
+  {
+    "name": "duplicado_042458.799113400 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:24:58Z",
+    "updated_at": "2026-04-08T02:24:58Z"
+  },
+  {
+    "name": "duplicado_042458.799113400 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:24:58Z",
+    "updated_at": "2026-04-08T02:24:58Z"
+  },
+  {
+    "name": "duplicado_042723.814101600",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:27:23Z",
+    "updated_at": "2026-04-08T02:27:23Z"
+  },
+  {
+    "name": "duplicado_042723.814101600 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:27:23Z",
+    "updated_at": "2026-04-08T02:27:23Z"
+  },
+  {
+    "name": "duplicado_042723.814101600 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:27:23Z",
+    "updated_at": "2026-04-08T02:27:23Z"
+  },
+  {
+    "name": "duplicado_042728.316467400",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:27:28Z",
+    "updated_at": "2026-04-08T02:27:28Z"
+  },
+  {
+    "name": "duplicado_042728.316467400 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:27:28Z",
+    "updated_at": "2026-04-08T02:27:28Z"
+  },
+  {
+    "name": "duplicado_042728.316467400 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:27:28Z",
+    "updated_at": "2026-04-08T02:27:28Z"
+  },
+  {
+    "name": "duplicado_043146.853853700",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:31:46Z",
+    "updated_at": "2026-04-08T02:31:46Z"
+  },
+  {
+    "name": "duplicado_043146.853853700 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:31:46Z",
+    "updated_at": "2026-04-08T02:31:46Z"
+  },
+  {
+    "name": "duplicado_043146.853853700 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:31:46Z",
+    "updated_at": "2026-04-08T02:31:46Z"
+  },
+  {
+    "name": "duplicado_043151.346620600",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:31:51Z",
+    "updated_at": "2026-04-08T02:31:51Z"
+  },
+  {
+    "name": "duplicado_043151.346620600 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:31:51Z",
+    "updated_at": "2026-04-08T02:31:51Z"
+  },
+  {
+    "name": "duplicado_043151.346620600 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:31:51Z",
+    "updated_at": "2026-04-08T02:31:51Z"
+  },
+  {
+    "name": "duplicado_043539.545436800",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:35:39Z",
+    "updated_at": "2026-04-08T02:35:39Z"
+  },
+  {
+    "name": "duplicado_043539.545436800 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:35:39Z",
+    "updated_at": "2026-04-08T02:35:39Z"
+  },
+  {
+    "name": "duplicado_043539.545436800 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:35:39Z",
+    "updated_at": "2026-04-08T02:35:39Z"
+  },
+  {
+    "name": "duplicado_043543.934383700",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:35:43Z",
+    "updated_at": "2026-04-08T02:35:43Z"
+  },
+  {
+    "name": "duplicado_043543.934383700 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:35:43Z",
+    "updated_at": "2026-04-08T02:35:43Z"
+  },
+  {
+    "name": "duplicado_043543.934383700 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:35:43Z",
+    "updated_at": "2026-04-08T02:35:43Z"
+  },
+  {
+    "name": "duplicado_044813.153521100",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:48:13Z",
+    "updated_at": "2026-04-08T02:48:13Z"
+  },
+  {
+    "name": "duplicado_044813.153521100 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:48:13Z",
+    "updated_at": "2026-04-08T02:48:13Z"
+  },
+  {
+    "name": "duplicado_044813.153521100 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:48:13Z",
+    "updated_at": "2026-04-08T02:48:13Z"
+  },
+  {
+    "name": "duplicado_044817.515562100",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:48:17Z",
+    "updated_at": "2026-04-08T02:48:17Z"
+  },
+  {
+    "name": "duplicado_044817.515562100 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:48:17Z",
+    "updated_at": "2026-04-08T02:48:17Z"
+  },
+  {
+    "name": "duplicado_044817.515562100 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:48:17Z",
+    "updated_at": "2026-04-08T02:48:17Z"
+  },
+  {
+    "name": "duplicado_045605.042395300",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T02:56:05Z",
+    "updated_at": "2026-04-08T02:56:05Z"
+  },
+  {
+    "name": "duplicado_045605.042395300 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T02:56:05Z",
+    "updated_at": "2026-04-08T02:56:05Z"
+  },
+  {
+    "name": "duplicado_045605.042395300 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T02:56:05Z",
+    "updated_at": "2026-04-08T02:56:05Z"
+  },
+  {
+    "name": "duplicado_054045.561690800",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T03:40:45Z",
+    "updated_at": "2026-04-08T03:40:45Z"
+  },
+  {
+    "name": "duplicado_054045.561690800 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T03:40:45Z",
+    "updated_at": "2026-04-08T03:40:45Z"
+  },
+  {
+    "name": "duplicado_054045.561690800 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T03:40:45Z",
+    "updated_at": "2026-04-08T03:40:45Z"
+  },
+  {
+    "name": "duplicado_054049.878185000",
+    "intro_text": "uno",
+    "events_text": "uno",
+    "created_at": "2026-04-08T03:40:49Z",
+    "updated_at": "2026-04-08T03:40:49Z"
+  },
+  {
+    "name": "duplicado_054049.878185000 (1)",
+    "intro_text": "dos",
+    "events_text": "dos",
+    "created_at": "2026-04-08T03:40:49Z",
+    "updated_at": "2026-04-08T03:40:49Z"
+  },
+  {
+    "name": "duplicado_054049.878185000 (2)",
+    "intro_text": "tres",
+    "events_text": "tres",
+    "created_at": "2026-04-08T03:40:49Z",
+    "updated_at": "2026-04-08T03:40:49Z"
+  }
+]

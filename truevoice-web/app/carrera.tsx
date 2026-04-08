@@ -23,6 +23,8 @@ const EVENT_TYPE_LABELS: Record<number, string> = {
   5: "Entrada a boxes",
 };
 
+let raceScrollMemory = 0;
+
 function formatTimestamp(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -166,6 +168,8 @@ function CarreraContent() {
 
   const xmlInputRef = useRef<any>(null);
   const csvInputRef = useRef<any>(null);
+  const scrollRef = useRef<any>(null);
+  const eventTextInputRefs = useRef<Record<number, any>>({});
 
   const [batchElapsed, setBatchElapsed] = useState(0);
   const [itemElapsed, setItemElapsed] = useState(0);
@@ -204,9 +208,35 @@ function CarreraContent() {
   const autoResizeIntro = useCallback(() => {
     const el = introTextareaRef.current?._node ?? introTextareaRef.current;
     if (el && el.style) {
+      el.style.overflow = "hidden";
+      el.style.overflowY = "hidden";
       el.style.height = "auto";
       el.style.height = `${Math.max(80, el.scrollHeight)}px`;
     }
+  }, []);
+
+  const readInputValue = useCallback((raw: any, fallback: string): string => {
+    const el = raw?._node ?? raw;
+    if (el && typeof el.value === "string") {
+      return el.value;
+    }
+    return fallback;
+  }, []);
+
+  const readEventDescription = useCallback((idx: number): string => {
+    const fallback = store.events[idx]?.description || "";
+    return readInputValue(eventTextInputRefs.current[idx], fallback);
+  }, [store.events, readInputValue]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo?.({ y: raceScrollMemory, animated: false });
+    });
+  }, []);
+
+  const onScroll = useCallback((e: any) => {
+    const y = e?.nativeEvent?.contentOffset?.y ?? 0;
+    raceScrollMemory = y;
   }, []);
 
   useEffect(() => {
@@ -328,7 +358,7 @@ function CarreraContent() {
         batchCurrentItem: `Evento V${ev.lap} · ${ev.summary.slice(0, 36)}`,
       });
 
-      const desc = ev.description || "";
+      const desc = readEventDescription(idx);
       if (!desc.trim()) {
         done++;
         store.setBatchProgress({ batchDone: done, batchTotal: total });
@@ -347,7 +377,7 @@ function CarreraContent() {
     }
 
     store.clearBatchProgress();
-  }, [store, generateSingleAudio]);
+  }, [store, generateSingleAudio, readEventDescription]);
 
   // Batch elapsed timer
   useEffect(() => {
@@ -457,11 +487,17 @@ function CarreraContent() {
       ...previousNames,
     ]);
 
+    const introText = readInputValue(introTextareaRef.current, store.introText);
+    const eventsForExport = store.events.map((ev, idx) => ({
+      ...ev,
+      description: readEventDescription(idx),
+    }));
+
     const { data } = await raceExportCSV(finalName, {
-      intro_text: store.introText,
+      intro_text: introText,
       intro_audio: store.introAudio,
       header: store.header,
-      events: store.events,
+      events: eventsForExport,
       event_audios: store.eventAudios,
       hidden_event_indices: Array.from(store.hiddenEventIndices),
       selected_event_indices: Array.from(store.selectedEventIndices),
@@ -475,15 +511,19 @@ function CarreraContent() {
     a.click();
     window.URL.revokeObjectURL(url);
     saveExportName(finalName);
-  }, [store]);
+  }, [store, readInputValue, readEventDescription]);
 
   // Generate intro audio
   const handleGenerateIntroAudio = useCallback(async () => {
-    if (!store.introText?.trim()) return;
+    const introText = readInputValue(introTextareaRef.current, store.introText).trim();
+    if (!introText) return;
+    if (introText !== store.introText) {
+      store.setIntroText(introText);
+    }
     setGeneratingIntroAudio(true);
     try {
       const outName = sanitizeFilename(store.header?.track_event || "carrera");
-      const audioId = await generateSingleAudio(store.introText, `0_Intro_${outName}`, "Intro de carrera");
+      const audioId = await generateSingleAudio(introText, `0_Intro_${outName}`, "Intro de carrera");
       if (audioId) {
         store.setIntroAudio(audioId);
         setMissingAudios((prev) => {
@@ -496,7 +536,7 @@ function CarreraContent() {
     } finally {
       setGeneratingIntroAudio(false);
     }
-  }, [store, generateSingleAudio]);
+  }, [store, generateSingleAudio, readInputValue]);
 
   // Generate intro text via AI
   const handleGenerateIntroText = useCallback(async () => {
@@ -545,7 +585,10 @@ function CarreraContent() {
     async (idx: number) => {
       const ev = store.events[idx];
       if (!ev) return;
-      const desc = (ev.description || "").trim();
+      const desc = readEventDescription(idx).trim();
+      if (desc !== (ev.description || "")) {
+        store.updateEventDescription(idx, desc);
+      }
       if (!desc) {
         window.alert("Escribe primero el texto en el cuadro de descripción del evento.");
         return;
@@ -561,7 +604,7 @@ function CarreraContent() {
         setGeneratingAudioForEvent((prev) => ({ ...prev, [idx]: false }));
       }
     },
-    [store, generateSingleAudio],
+    [store, generateSingleAudio, readEventDescription],
   );
 
   // Delete intro audio
@@ -590,7 +633,13 @@ function CarreraContent() {
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView style={shared.screen} contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView
+        ref={scrollRef}
+        style={shared.screen}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
         <Text style={shared.title}>📝 Narración de Carrera</Text>
 
         {/* ── Context in use ───────────────────────────────────────── */}
@@ -681,10 +730,19 @@ function CarreraContent() {
           <View style={shared.card}>
             <Text style={shared.label}>Texto de Introducción</Text>
             <TextInput
+              key={`intro-${store.currentSession || "current"}-${store.introText.length}-${store.introText.slice(0, 24)}`}
               ref={introTextareaRef}
-              style={shared.textArea}
-              value={store.introText}
-              onChangeText={handleIntroTextChange}
+              style={[shared.textArea, { overflow: "hidden" }]}
+              defaultValue={store.introText}
+              onChangeText={() => {
+                requestAnimationFrame(autoResizeIntro);
+              }}
+              onBlur={() => {
+                const introText = readInputValue(introTextareaRef.current, store.introText);
+                if (introText !== store.introText) {
+                  store.setIntroText(introText);
+                }
+              }}
               multiline
               scrollEnabled={false}
               placeholder="Genera o escribe el texto de introducción..."
@@ -887,11 +945,21 @@ function CarreraContent() {
 
                   {/* Description input */}
                   <TextInput
+                    key={`event-desc-${idx}-${(ev.description || "").length}-${(ev.description || "").slice(0, 16)}`}
+                    ref={(el) => {
+                      eventTextInputRefs.current[idx] = el;
+                    }}
                     style={[shared.input, { fontSize: 13 }]}
-                    value={ev.description}
-                    onChangeText={(t) => store.updateEventDescription(idx, t)}
+                    defaultValue={ev.description}
+                    onBlur={() => {
+                      const value = readInputValue(eventTextInputRefs.current[idx], ev.description || "");
+                      if (value !== (ev.description || "")) {
+                        store.updateEventDescription(idx, value);
+                      }
+                    }}
                     placeholder="Descripción IA..."
                     placeholderTextColor={colors.textDim}
+                    multiline
                   />
 
                   {/* Action buttons */}

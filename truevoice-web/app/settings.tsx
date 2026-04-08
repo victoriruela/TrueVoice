@@ -13,6 +13,8 @@ import { useConfigStore } from "../src/stores/useConfigStore";
 import { useVoiceStore } from "../src/stores/useVoiceStore";
 import { ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus, browseDrives, browseFolders } from "../src/api";
 
+let settingsScrollMemory = 0;
+
 const MODEL_OPTIONS = [
   { label: "VibeVoice 1.5B (recomendado)", value: "microsoft/VibeVoice-1.5b" },
   { label: "VibeVoice 7B", value: "microsoft/VibeVoice-7b" },
@@ -203,6 +205,7 @@ export default function SettingsScreen() {
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
   const [showAudioFolderPicker, setShowAudioFolderPicker] = useState(false);
+  const scrollRef = React.useRef<any>(null);
 
   useEffect(() => {
     fetchVoices();
@@ -246,6 +249,17 @@ export default function SettingsScreen() {
     refreshSetupStatus();
   }, []);
 
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo?.({ y: settingsScrollMemory, animated: false });
+    });
+  }, []);
+
+  const onScroll = useCallback((e: any) => {
+    const y = e?.nativeEvent?.contentOffset?.y ?? 0;
+    settingsScrollMemory = y;
+  }, []);
+
   if (loading) {
     return (
       <View style={[shared.screen, { justifyContent: "center", alignItems: "center" }]}>
@@ -255,7 +269,7 @@ export default function SettingsScreen() {
   }
 
   return (
-    <ScrollView style={shared.screen}>
+    <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
       <Text style={shared.title}>⚙️ Configuración</Text>
 
       {/* Voice */}
@@ -392,11 +406,11 @@ export default function SettingsScreen() {
             {config.output_directory ? (config.output_directory.length > 50 ? "..." + config.output_directory.slice(-47) : config.output_directory) : "No seleccionado - usar carpeta por defecto"}
           </Text>
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Pressable style={[shared.button, { flex: 1 }]} onPress={() => setShowAudioFolderPicker(true)}>
+            <Pressable style={[shared.button, { minWidth: 180 }]} onPress={() => setShowAudioFolderPicker(true)}>
               <Text style={shared.buttonText}>Seleccionar carpeta</Text>
             </Pressable>
             {config.output_directory && (
-              <Pressable style={shared.buttonSecondary} onPress={() => patch({ output_directory: "" })}>
+              <Pressable style={[shared.buttonSecondary, { minWidth: 110 }]} onPress={() => patch({ output_directory: "" })}>
                 <Text style={[shared.buttonText, { color: colors.text }]}>Limpiar</Text>
               </Pressable>
             )}
@@ -471,10 +485,10 @@ export default function SettingsScreen() {
           <Text style={{ color: colors.error, marginBottom: 8 }}>{setup.error}</Text>
         ) : null}
         <View style={shared.row}>
-          <Pressable style={shared.buttonSecondary} onPress={refreshSetupStatus}>
+          <Pressable style={[shared.buttonSecondary, { minWidth: 160 }]} onPress={refreshSetupStatus}>
             <Text style={[shared.buttonText, { color: colors.text }]}>Refrescar estado</Text>
           </Pressable>
-          <Pressable style={shared.button} onPress={runBootstrap}>
+          <Pressable style={[shared.button, { minWidth: 170 }]} onPress={runBootstrap}>
             <Text style={shared.buttonText}>{setupLoading ? "Preparando..." : "Preparar runtime"}</Text>
           </Pressable>
         </View>
