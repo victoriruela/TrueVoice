@@ -21,6 +21,10 @@ def _fake_device_namespace():
         is_available=lambda: False,
         device_count=lambda: 0,
         current_device=lambda: 0,
+        manual_seed=lambda seed: None,
+        manual_seed_all=lambda seed: None,
+        seed=lambda: None,
+        seed_all=lambda: None,
     )
 
 if not hasattr(torch, "xpu"):

@@ -63,23 +63,47 @@ func (s *setupState) snapshot() map[string]any {
 }
 
 func runtimeRoot() string {
-	appData := os.Getenv("APPDATA")
+	if configured := strings.TrimSpace(os.Getenv("TRUEVOICE_RUNTIME_DIR")); configured != "" {
+		return filepath.Clean(configured)
+	}
+
+	if localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); localAppData != "" {
+		return filepath.Join(localAppData, "TrueVoice", "runtime")
+	}
+
+	if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+		return filepath.Join(appData, "TrueVoice", "runtime")
+	}
+
+	wd, _ := os.Getwd()
+	return filepath.Join(wd, "runtime")
+}
+
+func legacyRuntimeRoot() string {
+	appData := strings.TrimSpace(os.Getenv("APPDATA"))
 	if appData == "" {
-		wd, _ := os.Getwd()
-		return filepath.Join(wd, "runtime")
+		return ""
 	}
 	return filepath.Join(appData, "TrueVoice", "runtime")
 }
 
-func runtimePythonExe() string {
+func runtimePythonExeFor(root string) string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(runtimeRoot(), "python", "python.exe")
+		return filepath.Join(root, "python", "python.exe")
 	}
-	return filepath.Join(runtimeRoot(), "python", "bin", "python3")
+	return filepath.Join(root, "python", "bin", "python3")
+}
+
+func runtimeReadyFileFor(root string) string {
+	return filepath.Join(root, ".ready")
+}
+
+func runtimePythonExe() string {
+	return runtimePythonExeFor(runtimeRoot())
 }
 
 func runtimeReadyFile() string {
-	return filepath.Join(runtimeRoot(), ".ready")
+	return runtimeReadyFileFor(runtimeRoot())
 }
 
 func runtimeManifestFile() string {
@@ -90,9 +114,19 @@ func (m *Manager) ensureRuntimeReady() (string, error) {
 	m.bootMu.Lock()
 	defer m.bootMu.Unlock()
 
-	if py := runtimePythonExe(); fileExists(py) && fileExists(runtimeReadyFile()) {
+	root := runtimeRoot()
+	if py := runtimePythonExeFor(root); fileExists(py) && fileExists(runtimeReadyFileFor(root)) {
 		m.setup.set("ready", false, true, "", py)
 		return py, nil
+	}
+
+	legacyRoot := legacyRuntimeRoot()
+	if legacyRoot != "" && legacyRoot != root {
+		if py := runtimePythonExeFor(legacyRoot); fileExists(py) && fileExists(runtimeReadyFileFor(legacyRoot)) {
+			_ = os.Setenv("TRUEVOICE_RUNTIME_DIR", legacyRoot)
+			m.setup.set("ready", false, true, "", py)
+			return py, nil
+		}
 	}
 
 	m.setup.set("checking", true, false, "", "")

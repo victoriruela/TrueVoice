@@ -123,7 +123,7 @@ TrueVoice/
 |  +- AGENTS.md                      # Frontend-specific rules
 +- vibevoice_app.py                  # CLI sidecar
 +- inference_wrapper.py              # Wrapper de inferencia
-+- patches.py                        # Parches de compatibilidad VibeVoice
++- patches.py                        # Parches de compatibilidad de runtime (VibeVoice/Transformers/Torch)
 +- VibeVoice/                        # Paquete VibeVoice
 +- frontend_config.json              # Config persistente
 +- contexts/                         # Contextos JSON storage
@@ -159,6 +159,7 @@ Dependencias Python del sidecar:
 
 | Variable | Defecto | Proposito |
 |----------|---------|-----------|
+| TRUEVOICE_RUNTIME_DIR | `<install_dir>/runtime` en instalador; si no, `%LOCALAPPDATA%/TrueVoice/runtime` | Fuerza la ruta del runtime Python/modelos para evitar problemas de perfiles roaming |
 | HF_HOME | ~/.cache/huggingface | Cache de modelos |
 | TRANSFORMERS_CACHE | $HF_HOME/transformers | Cache transformers |
 | MKL_NUM_THREADS | 0 | Paralelismo MKL |
