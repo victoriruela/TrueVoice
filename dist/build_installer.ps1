@@ -11,6 +11,7 @@ $vibeZip = Join-Path $staging 'VibeVoice.zip'
 Write-Host '[1/8] Preparando carpetas temporales...'
 if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
 if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+if (Test-Path $installerPath) { Remove-Item -Force $installerPath }
 New-Item -ItemType Directory -Path $staging | Out-Null
 New-Item -ItemType Directory -Path $tmp | Out-Null
 
@@ -53,12 +54,54 @@ $installPs1 = @'
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$installDir = Join-Path $env:ProgramFiles "TrueVoice"
+function Write-InstallLog {
+  param([string]$Message)
+  $line = "[$([DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss'))] $Message"
+  Write-Host $line
+  if ($script:InstallLogPath) {
+    Add-Content -Path $script:InstallLogPath -Value $line -Encoding ASCII
+  }
+}
+
+function Select-InstallDirectory {
+  if ($env:TRUEVOICE_INSTALL_DIR -and $env:TRUEVOICE_INSTALL_DIR.Trim()) {
+    return $env:TRUEVOICE_INSTALL_DIR.Trim()
+  }
+
+  $defaultDir = Join-Path $env:LOCALAPPDATA "Programs\TrueVoice"
+  try {
+    Add-Type -AssemblyName System.Windows.Forms | Out-Null
+    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+    $dialog.Description = "Selecciona la carpeta donde instalar TrueVoice"
+    $dialog.ShowNewFolderButton = $true
+    if (Test-Path $defaultDir) {
+      $dialog.SelectedPath = $defaultDir
+    }
+
+    $result = $dialog.ShowDialog()
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK -and $dialog.SelectedPath) {
+      return $dialog.SelectedPath
+    }
+
+    throw "Instalacion cancelada por el usuario."
+  } catch {
+    Write-Host "No se pudo abrir selector grafico. Se usara consola."
+    $typed = Read-Host "Carpeta de instalacion (Enter para '$defaultDir')"
+    if (-not $typed) {
+      return $defaultDir
+    }
+    return $typed
+  }
+}
+
+$installDir = Select-InstallDirectory
 if (-not (Test-Path $installDir)) {
   New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 }
 
-Write-Host "Instalando archivos en $installDir ..."
+$script:InstallLogPath = Join-Path $installDir "install.log"
+Write-InstallLog "Instalando archivos en $installDir"
+
 $filesToCopy = @(
   "truevoice.exe",
   "vibevoice_app.py",
@@ -70,7 +113,11 @@ $filesToCopy = @(
   "debug_launcher.ps1"
 )
 
+$idx = 0
 foreach ($f in $filesToCopy) {
+  $idx++
+  $pct = [Math]::Floor((($idx / $filesToCopy.Count) * 25))
+  Write-Progress -Id 1 -Activity "Instalando TrueVoice" -Status "Copiando archivos ($idx/$($filesToCopy.Count))..." -PercentComplete $pct
   Copy-Item -Path (Join-Path $PSScriptRoot $f) -Destination (Join-Path $installDir $f) -Force
 }
 
@@ -79,11 +126,13 @@ $vibeDst = Join-Path $installDir "VibeVoice"
 if (Test-Path $vibeDst) {
   Remove-Item -Recurse -Force $vibeDst
 }
+Write-Progress -Id 1 -Activity "Instalando TrueVoice" -Status "Extrayendo VibeVoice..." -PercentComplete 30
 Expand-Archive -Path $vibeZip -DestinationPath $vibeDst -Force
 
 foreach ($d in @("api_outputs", "temp_outputs", "voices", "race_sessions", "contexts")) {
   New-Item -ItemType Directory -Path (Join-Path $installDir $d) -Force | Out-Null
 }
+Write-InstallLog "Archivos base instalados"
 
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shortcutPath = Join-Path $desktop "TrueVoice.lnk"
@@ -93,8 +142,9 @@ $shortcut.TargetPath = Join-Path $installDir "debug_launcher.cmd"
 $shortcut.WorkingDirectory = $installDir
 $shortcut.IconLocation = Join-Path $installDir "truevoice.exe"
 $shortcut.Save()
+Write-InstallLog "Acceso directo creado en escritorio"
 
-Write-Host "Inicializando runtime (descarga VibeVoice y modelo 1.5B). Puede tardar varios minutos..."
+Write-InstallLog "Inicializando runtime (descarga VibeVoice y modelo 1.5B). Puede tardar varios minutos"
 function Get-StageProgress {
   param([string]$Stage)
 
@@ -102,9 +152,9 @@ function Get-StageProgress {
     "idle" { return @{ Percent = 5; Status = "Preparando instalador..." } }
     "checking" { return @{ Percent = 12; Status = "Comprobando runtime Python..." } }
     "downloading_python" { return @{ Percent = 25; Status = "Descargando runtime Python embebido..." } }
-    "installing_dependencies" { return @{ Percent = 45; Status = "Descargando e instalando VibeVoice y dependencias..." } }
+    "installing_dependencies" { return @{ Percent = 55; Status = "Descargando e instalando VibeVoice y dependencias..." } }
     "downloading_model" { return @{ Percent = 75; Status = "Descargando modelo de generacion de voz VibeVoice 1.5B..." } }
-    "ready" { return @{ Percent = 100; Status = "Instalacion completada" } }
+    "ready" { return @{ Percent = 95; Status = "Finalizando instalacion..." } }
     "failed" { return @{ Percent = 100; Status = "Error durante la instalacion" } }
     default { return @{ Percent = 18; Status = "Instalando..." } }
   }
@@ -113,6 +163,7 @@ function Get-StageProgress {
 $proc = Start-Process -FilePath (Join-Path $installDir "truevoice.exe") -WorkingDirectory $installDir -PassThru
 $bootstrapStarted = $false
 $ready = $false
+Write-InstallLog "Servidor de bootstrap iniciado (PID=$($proc.Id))"
 
 for ($i = 0; $i -lt 720; $i++) {
   Start-Sleep -Seconds 5
@@ -137,6 +188,7 @@ for ($i = 0; $i -lt 720; $i++) {
     }
 
     Write-Progress -Id 1 -Activity "Instalando TrueVoice" -Status $statusText -PercentComplete $progress.Percent
+    Write-InstallLog "Bootstrap stage=$stage ready=$($statusObj.ready)"
 
     if ($statusObj.ready -eq $true -and $stage -eq "ready") {
       $ready = $true
@@ -156,10 +208,13 @@ Write-Progress -Id 1 -Activity "Instalando TrueVoice" -Completed
 
 if (-not $ready) {
   try { Stop-Process -Id $proc.Id -Force } catch {}
+  Write-InstallLog "ERROR: Timeout esperando bootstrap del runtime/modelo"
   throw "Timeout esperando bootstrap del runtime/modelo."
 }
 
 try { Stop-Process -Id $proc.Id -Force } catch {}
+Write-Progress -Id 1 -Activity "Instalando TrueVoice" -Status "Instalacion completada" -PercentComplete 100
+Write-InstallLog "Instalacion completada correctamente"
 Write-Host "Instalacion completada correctamente."
 '@
 Set-Content -Path (Join-Path $staging 'install.ps1') -Value $installPs1 -Encoding ASCII
@@ -217,7 +272,7 @@ Set-Content -Path (Join-Path $staging 'debug_launcher.cmd') -Value $launcherCmd 
 $installCmd = @'
 @echo off
 setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -Sta -File "%~dp0install.ps1"
 endlocal
 '@
 Set-Content -Path (Join-Path $staging 'install.cmd') -Value $installCmd -Encoding ASCII
@@ -237,7 +292,7 @@ PackagePurpose=InstallApp
 ShowInstallProgramWindow=1
 HideExtractAnimation=0
 UseLongFileName=1
-InsideCompressed=0
+InsideCompressed=1
 CAB_FixedSize=0
 CAB_ResvCodeSigning=0
 RebootMode=N
@@ -246,7 +301,7 @@ DisplayLicense=
 FinishMessage=Instalacion finalizada.
 TargetName=$targetPath
 FriendlyName=TrueVoice Installer
-AppLaunched=install.cmd
+AppLaunched=cmd /c install.cmd
 PostInstallCmd=<None>
 AdminQuietInstCmd=
 UserQuietInstCmd=
@@ -289,9 +344,26 @@ if (-not (Test-Path $iexpress)) {
   throw 'No se encontro iexpress.exe en el sistema.'
 }
 & $iexpress /N /Q $sedPath
+$iexpressExit = $LASTEXITCODE
+
+for ($i = 0; $i -lt 60 -and -not (Test-Path $installerPath); $i++) {
+  Start-Sleep -Seconds 1
+}
+
+$installerInfo = Get-Item -LiteralPath $installerPath -ErrorAction SilentlyContinue
+$rcxTmp = Get-ChildItem -Path $distDir -Filter 'RCX*.tmp' -File -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+
+if ($rcxTmp -and ((-not $installerInfo) -or $installerInfo.Length -lt 1000000)) {
+  if (Test-Path $installerPath) {
+    Remove-Item -Force $installerPath
+  }
+  Move-Item -LiteralPath $rcxTmp.FullName -Destination $installerPath -Force
+}
 
 if (-not (Test-Path $installerPath)) {
-  throw "No se genero $installerPath"
+  throw "No se genero $installerPath (ExitCode IExpress=$iexpressExit)"
 }
 
 Write-Host '[8/8] Copiando debug_launcher al directorio dist...'
