@@ -154,6 +154,7 @@ Dependencias Python del sidecar:
 - transformers, accelerate, huggingface_hub
 - soundfile, scipy, datasets, diffusers, peft, librosa
 - VibeVoice editable (`pip install -e ./VibeVoice`)
+- En CPU, `inference_wrapper.py` fuerza `attn_implementation="eager"` para evitar el requisito SDPA de Transformers en runtimes con torch antiguo.
 
 ## Variables de Entorno
 

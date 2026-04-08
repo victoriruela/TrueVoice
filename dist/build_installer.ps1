@@ -374,7 +374,19 @@ if ($rcxTmp -and ((-not $installerInfo) -or $installerInfo.Length -lt 1000000)) 
   if (Test-Path $installerPath) {
     Remove-Item -Force $installerPath
   }
-  Move-Item -LiteralPath $rcxTmp.FullName -Destination $installerPath -Force
+
+  $moved = $false
+  for ($attempt = 1; $attempt -le 20 -and -not $moved; $attempt++) {
+    try {
+      Move-Item -LiteralPath $rcxTmp.FullName -Destination $installerPath -Force
+      $moved = $true
+    } catch {
+      if ($attempt -eq 20) {
+        throw
+      }
+      Start-Sleep -Milliseconds 500
+    }
+  }
 }
 
 if (-not (Test-Path $installerPath)) {
