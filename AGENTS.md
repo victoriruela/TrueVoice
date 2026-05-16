@@ -264,6 +264,22 @@ Notas de instalacion:
 - Durante la instalacion se ejecuta bootstrap del runtime para descargar dependencias de VibeVoice y el modelo `microsoft/VibeVoice-1.5b`.
 - El empaquetado con IExpress en `dist/build_installer.ps1` espera la finalizacion del proceso para evitar fallos por timeout en equipos lentos.
 
+### Build paquete portable ZIP (runtime + modelo incluidos)
+
+```bash
+cd dist
+powershell -ExecutionPolicy Bypass -File .\build_portable_zip.ps1
+# Genera: dist/TrueVoicePortable.zip
+# El ZIP incluye: runtime Python, dependencias, modelo VibeVoice 1.5B,
+# truevoice.exe, start_app.bat y stop_app.bat
+# Si TrueVoicePortable.zip esta bloqueado, genera TrueVoicePortable_YYYYMMDD_HHMMSS.zip
+```
+
+Notas del paquete portable:
+- Requiere que exista al menos un runtime listo con `.ready` y el modelo `microsoft/VibeVoice-1.5b` en alguna ruta candidata (`LOCALAPPDATA`, `APPDATA` o instalaciones previas en `Program Files`).
+- `start_app.bat` fija `TRUEVOICE_RUNTIME_DIR` al runtime incluido en el ZIP y abre la app en `http://localhost:8000/app`.
+- `stop_app.bat` detiene `truevoice.exe` y los `python.exe` del runtime portable.
+
 Servicios:
 - App + API: http://localhost:8000/app
 - Health: http://localhost:8000/
