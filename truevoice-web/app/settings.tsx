@@ -11,13 +11,18 @@ import {
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
 import { useVoiceStore } from "../src/stores/useVoiceStore";
-import { ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus, browseDrives, browseFolders } from "../src/api";
+import { ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus, browseDrives, browseFolders, listModels, type ModelInfo } from "../src/api";
 
 let settingsScrollMemory = 0;
 
-const MODEL_OPTIONS = [
-  { label: "VibeVoice 1.5B (recomendado)", value: "microsoft/VibeVoice-1.5b" },
-  { label: "VibeVoice 7B", value: "microsoft/VibeVoice-7b" },
+const DEFAULT_MODEL_OPTIONS: ModelInfo[] = [
+  { id: "microsoft/VibeVoice-1.5b", name: "VibeVoice 1.5B (recomendado)", size: "~6 GB" },
+];
+
+const QUANTIZE_OPTIONS = [
+  { value: "none", label: "Precisión completa" },
+  { value: "4bit", label: "4-bit (ahorro VRAM, req. GPU CUDA)" },
+  { value: "8bit", label: "8-bit (equilibrado, req. GPU CUDA)" },
 ];
 
 const FORMAT_OPTIONS = ["wav", "mp3", "flac", "ogg"];
@@ -199,16 +204,29 @@ function FolderPicker({
 
 export default function SettingsScreen() {
   const { config, loading, patch } = useConfigStore();
+  const addCustomModel = useConfigStore((s) => s.addCustomModel);
+  const deleteCustomModel = useConfigStore((s) => s.deleteCustomModel);
   const { voices, fetch: fetchVoices } = useVoiceStore();
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
   const [showAudioFolderPicker, setShowAudioFolderPicker] = useState(false);
+  const [modelOptions, setModelOptions] = useState<ModelInfo[]>(DEFAULT_MODEL_OPTIONS);
+  const [newModelId, setNewModelId] = useState("");
+  const [newModelName, setNewModelName] = useState("");
   const scrollRef = React.useRef<any>(null);
 
   useEffect(() => {
     fetchVoices();
+    (async () => {
+      try {
+        const { data } = await listModels();
+        if (Array.isArray(data) && data.length > 0) setModelOptions(data);
+      } catch {
+        /* keep defaults */
+      }
+    })();
   }, []);
 
   const refreshOllamaModels = useCallback(async () => {
@@ -304,15 +322,15 @@ export default function SettingsScreen() {
       {/* Model */}
       <Section title="Modelo">
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          {MODEL_OPTIONS.map((m) => (
+          {modelOptions.map((m) => (
             <Pressable
-              key={m.value}
+              key={m.id}
               onPress={() =>
-                patch({ selected_model: m.value, selected_model_name: m.label })
+                patch({ selected_model: m.id, selected_model_name: m.name })
               }
               style={[
                 shared.buttonSecondary,
-                config.selected_model === m.value && { borderColor: colors.primary },
+                config.selected_model === m.id && { borderColor: colors.primary },
               ]}
             >
               <Text
@@ -320,14 +338,97 @@ export default function SettingsScreen() {
                   shared.buttonText,
                   {
                     color:
-                      config.selected_model === m.value ? colors.primary : colors.text,
+                      config.selected_model === m.id ? colors.primary : colors.text,
                   },
                 ]}
               >
-                {m.label}
+                {m.name} <Text style={{ color: colors.textDim, fontSize: 11 }}>({m.size})</Text>
               </Text>
             </Pressable>
           ))}
+        </View>
+      </Section>
+
+      {/* Custom models */}
+      <Section title="Modelos personalizados">
+        <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 12 }}>
+          Añade modelos personalizados por su HF repo ID (ej: <Text style={{ color: colors.accent }}>microsoft/VibeVoice-1.5b</Text>) o ruta absoluta a una carpeta local.
+        </Text>
+
+        {(config.custom_models || []).length === 0 ? (
+          <Text style={{ color: colors.textDim, fontStyle: "italic", fontSize: 13, marginBottom: 12 }}>
+            No hay modelos personalizados.
+          </Text>
+        ) : (
+          (config.custom_models || []).map((m) => (
+            <View
+              key={m.id}
+              style={{
+                backgroundColor: colors.surfaceLight,
+                borderRadius: 6,
+                padding: 10,
+                marginBottom: 8,
+                borderWidth: 1,
+                borderColor: colors.border,
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>{m.name}</Text>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>{m.id}  ·  {m.size}</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  if (window.confirm(`¿Eliminar modelo "${m.name}"?`)) deleteCustomModel(m.id);
+                }}
+                style={{ paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.error, borderRadius: 4 }}
+              >
+                <Text style={{ color: colors.error, fontSize: 11, fontWeight: "600" }}>Eliminar</Text>
+              </Pressable>
+            </View>
+          ))
+        )}
+
+        <View style={{ marginTop: 8 }}>
+          <Text style={shared.label}>Nombre</Text>
+          <TextInput
+            style={shared.input}
+            value={newModelName}
+            onChangeText={setNewModelName}
+            placeholder="ej: VibeVoice Local"
+            placeholderTextColor={colors.textDim}
+          />
+          <Text style={shared.label}>ID / Ruta local</Text>
+          <TextInput
+            style={shared.input}
+            value={newModelId}
+            onChangeText={setNewModelId}
+            placeholder="microsoft/VibeVoice-1.5b o C:\modelos\mi_modelo"
+            placeholderTextColor={colors.textDim}
+            autoCapitalize="none"
+          />
+          <Pressable
+            onPress={async () => {
+              const id = newModelId.trim();
+              const name = newModelName.trim() || id;
+              if (!id) {
+                window.alert("Indica un ID o ruta");
+                return;
+              }
+              await addCustomModel({ id, name, size: "?" });
+              setNewModelId("");
+              setNewModelName("");
+              try {
+                const { data } = await listModels();
+                if (Array.isArray(data) && data.length > 0) setModelOptions(data);
+              } catch { /* */ }
+            }}
+            style={shared.button}
+          >
+            <Text style={shared.buttonText}>Añadir modelo</Text>
+          </Pressable>
         </View>
       </Section>
 
@@ -397,6 +498,100 @@ export default function SettingsScreen() {
           </View>
           <Text style={{ color: colors.text }}>Desactivar clonación de voz (prefill)</Text>
         </Pressable>
+      </Section>
+
+      {/* Advanced generation */}
+      <Section title="Generación avanzada">
+        <Slider
+          label="Velocidad de voz"
+          value={config.voice_speed_factor ?? 1.0}
+          min={0.8}
+          max={1.2}
+          step={0.01}
+          onChange={(v) => patch({ voice_speed_factor: v })}
+        />
+        <Slider
+          label="Palabras por bloque (chunking)"
+          value={config.max_words_per_chunk ?? 250}
+          min={100}
+          max={500}
+          step={10}
+          onChange={(v) => patch({ max_words_per_chunk: v })}
+        />
+
+        <Text style={{ color: colors.textDim, marginBottom: 6, marginTop: 4 }}>Cuantización LLM</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+          {QUANTIZE_OPTIONS.map((q) => (
+            <Pressable
+              key={q.value}
+              onPress={() => patch({ quantize_llm: q.value })}
+              style={[
+                shared.buttonSecondary,
+                (config.quantize_llm || "none") === q.value && { borderColor: colors.primary },
+              ]}
+            >
+              <Text
+                style={[
+                  shared.buttonText,
+                  {
+                    color:
+                      (config.quantize_llm || "none") === q.value ? colors.primary : colors.text,
+                  },
+                ]}
+              >
+                {q.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 12 }}>
+          La cuantización solo funciona con GPU CUDA.
+        </Text>
+
+        <Pressable
+          onPress={() => patch({ use_sampling: !config.use_sampling })}
+          style={[shared.row, { marginBottom: 8 }]}
+        >
+          <View
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 4,
+              borderWidth: 2,
+              borderColor: config.use_sampling ? colors.primary : colors.border,
+              backgroundColor: config.use_sampling ? colors.primary : "transparent",
+              marginRight: 8,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            {config.use_sampling && (
+              <Text style={{ color: colors.bg, fontSize: 12, fontWeight: "bold" }}>✓</Text>
+            )}
+          </View>
+          <Text style={{ color: colors.text }}>Modo sampling (variación creativa)</Text>
+        </Pressable>
+
+        {config.use_sampling && (
+          <>
+            <Slider
+              label="Temperature"
+              value={config.temperature ?? 0.95}
+              min={0.1}
+              max={2.0}
+              step={0.05}
+              onChange={(v) => patch({ temperature: v })}
+            />
+            <Slider
+              label="Top-p"
+              value={config.top_p ?? 0.95}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => patch({ top_p: v })}
+            />
+          </>
+        )}
       </Section>
 
       {/* Output directory */}
