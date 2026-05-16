@@ -272,10 +272,12 @@ def main():
 
     from_pretrained_kwargs = dict(
         torch_dtype=load_dtype,
-        device_map=args.device,
         attn_implementation=attn_impl,
-        low_cpu_mem_usage=True,
     )
+    # device_map only for CUDA — Accelerate 1.6 fails with device_map="cpu"
+    # (dispatch_model tries model.to(device) on meta tensors → NotImplementedError)
+    if args.device == "cuda":
+        from_pretrained_kwargs["device_map"] = "cuda"
     if quantization_config is not None:
         from_pretrained_kwargs["quantization_config"] = quantization_config
 
