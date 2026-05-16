@@ -291,15 +291,12 @@ def main():
     if hasattr(model, 'set_ddpm_inference_steps'):
         model.set_ddpm_inference_steps(num_steps=args.ddpm_steps)
 
-    # ── Build generation config (sampling vs greedy) ─────────────────
+    # ── Build generation kwargs (sampling vs greedy) ─────────────────
+    extra_gen_kwargs: dict = {}
     if args.use_sampling:
-        gen_config = {
-            'do_sample': True,
-            'temperature': args.temperature,
-            'top_p': args.top_p,
-        }
-    else:
-        gen_config = {'do_sample': False}
+        extra_gen_kwargs['do_sample'] = True
+        extra_gen_kwargs['temperature'] = args.temperature
+        extra_gen_kwargs['top_p'] = args.top_p
 
     def _generate_for_text(text_block: str):
         """Run a single inference for a given script text and return numpy audio array."""
@@ -315,8 +312,8 @@ def main():
             max_new_tokens=None,
             cfg_scale=args.cfg_scale,
             tokenizer=processor.tokenizer,
-            generation_config=gen_config,
             is_prefill=not args.disable_prefill,
+            **extra_gen_kwargs,
         )
         return _audio_to_numpy(outputs.speech_outputs[0])
 

@@ -10,7 +10,6 @@ import {
 } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
-import { useVoiceStore } from "../src/stores/useVoiceStore";
 import { ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus, browseDrives, browseFolders, listModels, type ModelInfo } from "../src/api";
 
 let settingsScrollMemory = 0;
@@ -206,7 +205,6 @@ export default function SettingsScreen() {
   const { config, loading, patch } = useConfigStore();
   const addCustomModel = useConfigStore((s) => s.addCustomModel);
   const deleteCustomModel = useConfigStore((s) => s.deleteCustomModel);
-  const { voices, fetch: fetchVoices } = useVoiceStore();
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
@@ -218,7 +216,6 @@ export default function SettingsScreen() {
   const scrollRef = React.useRef<any>(null);
 
   useEffect(() => {
-    fetchVoices();
     (async () => {
       try {
         const { data } = await listModels();
@@ -289,35 +286,6 @@ export default function SettingsScreen() {
   return (
     <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
       <Text style={shared.title}>⚙️ Configuración</Text>
-
-      {/* Voice */}
-      <Section title="Voz">
-        <Text style={{ color: colors.textDim, marginBottom: 6 }}>Voz seleccionada</Text>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          {voices.map((v) => (
-            <Pressable
-              key={v.name}
-              onPress={() => patch({ selected_voice: v.name })}
-              style={[
-                shared.buttonSecondary,
-                config.selected_voice === v.name && { borderColor: colors.primary },
-              ]}
-            >
-              <Text
-                style={[
-                  shared.buttonText,
-                  {
-                    color:
-                      config.selected_voice === v.name ? colors.primary : colors.text,
-                  },
-                ]}
-              >
-                {v.alias || v.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </Section>
 
       {/* Model */}
       <Section title="Modelo">
@@ -425,7 +393,7 @@ export default function SettingsScreen() {
                 if (Array.isArray(data) && data.length > 0) setModelOptions(data);
               } catch { /* */ }
             }}
-            style={shared.button}
+            style={[shared.button, { alignSelf: "flex-start", minWidth: 160 }]}
           >
             <Text style={shared.buttonText}>Añadir modelo</Text>
           </Pressable>
