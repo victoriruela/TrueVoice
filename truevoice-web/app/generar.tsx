@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator, Modal } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
 import { useGenerationStore, GenerationTask } from "../src/stores/useGenerationStore";
@@ -41,6 +41,7 @@ function TaskCard({
   const { updateTask, generate, save, removeTask } = useGenerationStore();
   const removeAudioReferencesByIds = useRaceStore((s) => s.removeAudioReferencesByIds);
   const [now, setNow] = useState(() => Date.now());
+  const [showFormatHint, setShowFormatHint] = useState(false);
   const textAreaRef = useRef<any>(null);
 
   const getScrollParent = useCallback((el: any): any => {
@@ -152,6 +153,24 @@ function TaskCard({
         </Pressable>
       </View>
 
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+        <Text style={[shared.label, { marginBottom: 0, flex: 1 }]}>Texto a sintetizar</Text>
+        <Pressable
+          onPress={() => setShowFormatHint(true)}
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 11,
+            borderWidth: 1,
+            borderColor: colors.primary,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>i</Text>
+        </Pressable>
+      </View>
+
       <TextInput
         ref={textAreaRef}
         style={[shared.textArea, { minHeight: 120, overflow: "hidden" }]}
@@ -164,6 +183,84 @@ function TaskCard({
         multiline
         scrollEnabled={false}
       />
+
+      <Modal
+        visible={showFormatHint}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFormatHint(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 8,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: colors.border,
+              maxWidth: 520,
+              width: "100%",
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: 8 }}>
+              Formato multi-speaker
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 13, marginBottom: 8 }}>
+              Para narraciones con varias voces, usa el formato:
+            </Text>
+            <View
+              style={{
+                backgroundColor: colors.surfaceLight,
+                padding: 12,
+                borderRadius: 6,
+                marginBottom: 12,
+              }}
+            >
+              <Text style={{ color: colors.text, fontFamily: "monospace", fontSize: 13 }}>
+                Speaker 1: Buenos días a todos{"\n"}
+                Speaker 2: Y bienvenidos al Gran Premio de Japón
+              </Text>
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>
+              También puedes usar <Text style={{ color: colors.accent }}>[clave]:</Text> con las claves de los narradores configurados en Voces.
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>
+              Etiqueta <Text style={{ color: colors.accent }}>[pause:1000]</Text> para insertar 1 segundo de silencio.
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 16 }}>
+              Los textos largos se dividen automáticamente en bloques (configurable en Ajustes).
+            </Text>
+
+            <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
+              <Pressable
+                onPress={() => {
+                  const example =
+                    "Speaker 1: Buenos días a todos.\nSpeaker 2: Y bienvenidos al Gran Premio de Japón.";
+                  updateTask(task.id, { text: example });
+                  setShowFormatHint(false);
+                }}
+                style={[shared.buttonSecondary, { marginBottom: 0 }]}
+              >
+                <Text style={[shared.buttonText, { color: colors.primary }]}>Insertar ejemplo</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setShowFormatHint(false)}
+                style={[shared.button, { marginBottom: 0 }]}
+              >
+                <Text style={shared.buttonText}>Cerrar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {task.status === "generating" && (
         <View style={[shared.row, { marginBottom: 8 }]}>
