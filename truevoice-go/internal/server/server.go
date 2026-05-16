@@ -75,6 +75,15 @@ func (s *Server) buildRouter() chi.Router {
 
 	// Models
 	r.Get("/models", s.listModels)
+	r.Post("/models", s.addCustomModel)
+	r.Delete("/models/{id}", s.deleteCustomModel)
+
+	// Narrators
+	r.Get("/narrators", s.listNarrators)
+	r.Post("/narrators", s.createOrUpdateNarrator)
+	r.Put("/narrators/{key}", s.updateNarrator)
+	r.Delete("/narrators/{key}", s.deleteNarrator)
+	r.Post("/narrators/{key}/set-principal", s.setPrincipalNarrator)
 
 	// Generation
 	r.Post("/generate", s.gen.GenerateHandler)
