@@ -4,7 +4,13 @@ import inspect
 
 
 def _patch_load_state_dict_assign_compat():
-    """Make Module.load_state_dict tolerate 'assign' on older torch versions."""
+    """Make Module.load_state_dict support 'assign=True' on torch <2.1 (e.g. 2.0.1).
+
+    transformers 4.51+ passes assign=True to materialize meta tensors during
+    from_pretrained.  torch 2.0.1 doesn't have that parameter so we emulate it:
+    when assign=True, we directly replace each parameter/buffer in the module
+    with the tensor from the state_dict (same semantics as the native assign=True).
+    """
     module_cls = torch.nn.Module
     original = module_cls.load_state_dict
 
@@ -17,11 +23,64 @@ def _patch_load_state_dict_assign_compat():
         supports_assign = True
 
     if supports_assign:
-        return
+        return  # torch >=2.1 already handles assign natively
 
     def _compat_load_state_dict(self, state_dict, strict=True, *args, **kwargs):
-        kwargs.pop("assign", None)
-        return original(self, state_dict, strict=strict, *args, **kwargs)
+        assign = kwargs.pop("assign", False)
+
+        if not assign:
+            # Regular path — no assign requested, use the original
+            return original(self, state_dict, strict=strict, *args, **kwargs)
+
+        # assign=True path: replace parameters/buffers directly (no copy).
+        # This materialises meta tensors created by transformers' init_empty_weights().
+        missing_keys = []
+        unexpected_keys = []
+
+        # Build a full name→module map for direct assignment
+        module_map = {name: mod for name, mod in self.named_modules()}
+        module_map[""] = self
+
+        for full_name, tensor in state_dict.items():
+            parts = full_name.rsplit(".", 1)
+            if len(parts) == 2:
+                parent_name, attr = parts
+            else:
+                parent_name, attr = "", parts[0]
+
+            parent = module_map.get(parent_name)
+            if parent is None:
+                unexpected_keys.append(full_name)
+                continue
+
+            if attr in parent._parameters:
+                parent._parameters[attr] = torch.nn.Parameter(tensor, requires_grad=parent._parameters[attr].requires_grad if parent._parameters[attr] is not None else tensor.requires_grad)
+            elif attr in parent._buffers:
+                parent._buffers[attr] = tensor
+            else:
+                unexpected_keys.append(full_name)
+
+        if strict:
+            # Collect parameters/buffers that were not in state_dict
+            current_keys = set()
+            for name, p in self.named_parameters():
+                current_keys.add(name)
+            for name, b in self.named_buffers():
+                current_keys.add(name)
+            sd_keys = set(state_dict.keys())
+            missing_keys = [k for k in current_keys if k not in sd_keys]
+
+        from collections import namedtuple
+        _IncompatibleKeys = namedtuple("IncompatibleKeys", ["missing_keys", "unexpected_keys"])
+        result = _IncompatibleKeys(missing_keys, unexpected_keys)
+
+        # strict mode raises if there are unexpected keys
+        if strict and unexpected_keys:
+            raise RuntimeError(
+                f"Error(s) in loading state_dict:\n"
+                f"\tUnexpected key(s) in state_dict: {unexpected_keys}"
+            )
+        return result
 
     _compat_load_state_dict._truevoice_assign_compat = True
     module_cls.load_state_dict = _compat_load_state_dict
