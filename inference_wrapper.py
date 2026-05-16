@@ -158,9 +158,10 @@ def main():
     
     processor = VibeVoiceProcessor.from_pretrained(args.model_path)
     
-    # float32 usa instrucciones AVX2/MKL nativas en CPU — bfloat16 es emulado y ~6x más lento
+    # float32 usa instrucciones AVX2/MKL nativas en CPU; en CPU forzamos eager
+    # para no depender de SDPA (torch>=2.1.1) en runtimes empaquetados antiguos.
     load_dtype = torch.float32
-    attn_impl = "flash_attention_2" if args.device == "cuda" else "sdpa"
+    attn_impl = "flash_attention_2" if args.device == "cuda" else "eager"
     
     model = VibeVoiceForConditionalGenerationInference.from_pretrained(
         args.model_path,

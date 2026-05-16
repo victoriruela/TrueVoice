@@ -1,5 +1,33 @@
 import torch
 import types
+import inspect
+
+
+def _patch_load_state_dict_assign_compat():
+    """Make Module.load_state_dict tolerate 'assign' on older torch versions."""
+    module_cls = torch.nn.Module
+    original = module_cls.load_state_dict
+
+    if getattr(original, "_truevoice_assign_compat", False):
+        return
+
+    try:
+        supports_assign = "assign" in inspect.signature(original).parameters
+    except (TypeError, ValueError):
+        supports_assign = True
+
+    if supports_assign:
+        return
+
+    def _compat_load_state_dict(self, state_dict, strict=True, *args, **kwargs):
+        kwargs.pop("assign", None)
+        return original(self, state_dict, strict=strict, *args, **kwargs)
+
+    _compat_load_state_dict._truevoice_assign_compat = True
+    module_cls.load_state_dict = _compat_load_state_dict
+
+
+_patch_load_state_dict_assign_compat()
 
 if not hasattr(torch, "compiler"):
     def _noop_disable(*args, **kwargs):
@@ -21,6 +49,10 @@ def _fake_device_namespace():
         is_available=lambda: False,
         device_count=lambda: 0,
         current_device=lambda: 0,
+        manual_seed=lambda seed: None,
+        manual_seed_all=lambda seed: None,
+        seed=lambda: None,
+        seed_all=lambda: None,
     )
 
 if not hasattr(torch, "xpu"):

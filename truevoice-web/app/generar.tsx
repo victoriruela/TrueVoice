@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
@@ -6,6 +6,8 @@ import { useGenerationStore, GenerationTask } from "../src/stores/useGenerationS
 import { useVoiceStore } from "../src/stores/useVoiceStore";
 import { getAudioUrl, listOutputs, deleteOutputs, GenerateRequest } from "../src/api";
 import { useRaceStore } from "../src/stores/useRaceStore";
+
+let generateScrollMemory = 0;
 
 function formatElapsed(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -39,6 +41,35 @@ function TaskCard({
   const { updateTask, generate, save, removeTask } = useGenerationStore();
   const removeAudioReferencesByIds = useRaceStore((s) => s.removeAudioReferencesByIds);
   const [now, setNow] = useState(() => Date.now());
+  const textAreaRef = useRef<any>(null);
+
+  const getScrollParent = useCallback((el: any): any => {
+    if (!el || typeof window === "undefined") return null;
+    let p = el.parentElement;
+    while (p) {
+      const style = window.getComputedStyle(p);
+      const overflowY = style?.overflowY || "";
+      if ((overflowY === "auto" || overflowY === "scroll") && p.scrollHeight > p.clientHeight) {
+        return p;
+      }
+      p = p.parentElement;
+    }
+    return null;
+  }, []);
+
+  const centerTypingLine = useCallback(() => {
+    const el = textAreaRef.current?._node ?? textAreaRef.current;
+    if (!el || typeof window === "undefined") return;
+    const parent = getScrollParent(el);
+    if (!parent) return;
+    const rect = el.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+    const lineHeight = 24;
+    const caretY = rect.bottom - lineHeight;
+    const caretYInParent = caretY - parentRect.top + parent.scrollTop;
+    const targetTop = Math.max(0, caretYInParent - parent.clientHeight * 0.5);
+    parent.scrollTop = targetTop;
+  }, [getScrollParent]);
 
   useEffect(() => {
     if (task.status !== "generating") return;
@@ -89,6 +120,20 @@ function TaskCard({
     : task.startedAt || now;
   const elapsed = Math.max(0, Math.floor((now - startTime) / 1000));
 
+  const autoResizeTaskTextArea = useCallback(() => {
+    const el = textAreaRef.current?._node ?? textAreaRef.current;
+    if (!el || !el.style) return;
+    el.style.overflow = "hidden";
+    el.style.overflowY = "hidden";
+    el.style.height = "auto";
+    el.style.height = `${Math.max(120, el.scrollHeight)}px`;
+    centerTypingLine();
+  }, [centerTypingLine]);
+
+  useEffect(() => {
+    requestAnimationFrame(autoResizeTaskTextArea);
+  }, [task.text, autoResizeTaskTextArea]);
+
   return (
     <View style={[shared.card, { backgroundColor: isSelected ? colors.surfaceLight : colors.surface }]}>
       <View style={[shared.row, { justifyContent: "space-between", marginBottom: 8 }]}>
@@ -108,12 +153,16 @@ function TaskCard({
       </View>
 
       <TextInput
-        style={shared.textArea}
+        ref={textAreaRef}
+        style={[shared.textArea, { minHeight: 120, overflow: "hidden" }]}
         value={task.text}
-        onChangeText={(t) => updateTask(task.id, { text: t })}
+        onChangeText={(t) => {
+          updateTask(task.id, { text: t });
+        }}
         placeholder="Escribe el texto a sintetizar..."
         placeholderTextColor={colors.textDim}
         multiline
+        scrollEnabled={false}
       />
 
       {task.status === "generating" && (
@@ -140,7 +189,14 @@ function TaskCard({
 
       <View style={shared.row}>
         <Pressable
-          style={[shared.button, { flex: 1, opacity: task.status === "generating" ? 0.5 : 1 }]}
+          style={[
+            shared.button,
+            {
+              opacity: task.status === "generating" ? 0.5 : 1,
+              minWidth: 120,
+              alignSelf: "flex-start",
+            },
+          ]}
           onPress={handleGenerate}
           disabled={task.status === "generating" || !task.text.trim()}
         >
@@ -160,7 +216,7 @@ function TaskCard({
 
         {task.result?.is_temp && task.status === "done" && (
           <Pressable
-            style={[shared.button, { flex: 1, backgroundColor: colors.success }]}
+            style={[shared.button, { backgroundColor: colors.success, minWidth: 120 }]}
             onPress={() => save(task.id, config.output_directory || undefined)}
           >
             <Text style={shared.buttonText}>Guardar</Text>
@@ -183,13 +239,25 @@ export default function GenerateScreen() {
   } = useGenerationStore();
   const fetchVoices = useVoiceStore((s) => s.fetch);
   const config = useConfigStore((s) => s.config);
+  const scrollRef = useRef<any>(null);
 
   useEffect(() => {
     fetchVoices(config.voice_directory || undefined);
   }, [config.voice_directory]);
 
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo?.({ y: generateScrollMemory, animated: false });
+    });
+  }, []);
+
+  const onScroll = useCallback((e: any) => {
+    const y = e?.nativeEvent?.contentOffset?.y ?? 0;
+    generateScrollMemory = y;
+  }, []);
+
   return (
-    <ScrollView style={shared.screen}>
+    <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
       <Text style={shared.title}>🗣️ Generar Audio</Text>
 
       {tasks.map((task) => (
@@ -201,24 +269,27 @@ export default function GenerateScreen() {
         />
       ))}
 
-      <Pressable style={shared.buttonSecondary} onPress={() => addTask()}>
+      <Pressable style={[shared.buttonSecondary, { alignSelf: "flex-start", minWidth: 170 }]} onPress={() => addTask()}>
         <Text style={[shared.buttonText, { color: colors.primary }]}>+ Añadir tarea</Text>
       </Pressable>
 
       {tasks.length > 0 && selectedTaskIds.length < tasks.length && (
-        <Pressable style={shared.buttonSecondary} onPress={selectAllTasks}>
+        <Pressable style={[shared.buttonSecondary, { alignSelf: "flex-start", minWidth: 170 }]} onPress={selectAllTasks}>
           <Text style={[shared.buttonText, { color: colors.primary }]}>✓ Seleccionar todo</Text>
         </Pressable>
       )}
 
       {selectedTaskIds.length > 0 && (
         <View style={{ marginTop: 12, gap: 8 }}>
-          <Pressable style={[shared.button, { backgroundColor: colors.error }]} onPress={removeSelectedTasks}>
+          <Pressable
+            style={[shared.button, { backgroundColor: colors.error, alignSelf: "flex-start", minWidth: 220 }]}
+            onPress={removeSelectedTasks}
+          >
             <Text style={shared.buttonText}>
               🗑️ Borrar {selectedTaskIds.length} seleccionado{selectedTaskIds.length > 1 ? "s" : ""}
             </Text>
           </Pressable>
-          <Pressable style={shared.buttonSecondary} onPress={clearSelection}>
+          <Pressable style={[shared.buttonSecondary, { alignSelf: "flex-start", minWidth: 180 }]} onPress={clearSelection}>
             <Text style={[shared.buttonText, { color: colors.textDim }]}>Deseleccionar todo</Text>
           </Pressable>
         </View>

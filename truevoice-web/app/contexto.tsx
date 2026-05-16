@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from "react";
+import React, { useEffect, useCallback, useLayoutEffect } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -9,6 +9,8 @@ import {
 } from "react-native";
 import { colors, shared } from "../src/theme";
 import { useContextStore } from "../src/stores/useContextStore";
+
+let contextScrollMemory = 0;
 
 export default function ContextoScreen() {
   const {
@@ -27,7 +29,7 @@ export default function ContextoScreen() {
   } = useContextStore();
 
   useEffect(() => {
-    fetchAll();
+    if (!draftIntroText && !draftEventsText) fetchAll();
   }, []);
 
   const onSave = useCallback(async () => {
@@ -54,8 +56,53 @@ export default function ContextoScreen() {
     await deleteByName(name);
   };
 
+  const introRef = React.useRef<any>(null);
+  const eventsRef = React.useRef<any>(null);
+  const scrollRef = React.useRef<any>(null);
+
+  // Restore scroll AFTER resize effects have painted (setTimeout > rAF)
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (contextScrollMemory > 0) {
+        scrollRef.current?.scrollTo?.({ y: contextScrollMemory, animated: false });
+      }
+    }, 80);
+    return () => clearTimeout(id);
+  }, []);
+
+  const onScroll = useCallback((e: any) => {
+    contextScrollMemory = e?.nativeEvent?.contentOffset?.y ?? 0;
+  }, []);
+
+  const resizeEl = useCallback((el: any) => {
+    if (!el || !el.style) return;
+    el.style.overflow = "hidden";
+    el.style.overflowY = "hidden";
+    el.style.height = "auto";
+    el.style.height = `${Math.max(120, el.scrollHeight)}px`;
+  }, []);
+
+  const resizeWithoutMovingScroll = useCallback((ref: React.RefObject<any>) => {
+    const el = ref.current?._node ?? ref.current;
+    const currentY = contextScrollMemory;
+    resizeEl(el);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo?.({ y: currentY, animated: false });
+      contextScrollMemory = currentY;
+    });
+  }, [resizeEl]);
+
+  // Resize before paint to avoid visible scroll flash while typing.
+  useLayoutEffect(() => {
+    resizeWithoutMovingScroll(introRef);
+  }, [draftIntroText, resizeWithoutMovingScroll]);
+
+  useLayoutEffect(() => {
+    resizeWithoutMovingScroll(eventsRef);
+  }, [draftEventsText, resizeWithoutMovingScroll]);
+
   return (
-    <ScrollView style={shared.screen}>
+    <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
       <Text style={shared.title}>📝 Contexto</Text>
 
       <View style={shared.card}>
@@ -67,22 +114,30 @@ export default function ContextoScreen() {
 
         <Text style={shared.label}>Introducción</Text>
         <TextInput
+          ref={introRef}
           multiline
-          style={[shared.textArea, { minHeight: 120 }]}
+          style={[shared.textArea, { minHeight: 120, overflow: "hidden" }]}
           placeholder="Texto de introducción..."
           placeholderTextColor={colors.textDim}
           value={draftIntroText}
-          onChangeText={setDraftIntroText}
+          onChangeText={(text) => {
+            setDraftIntroText(text);
+          }}
+          scrollEnabled={false}
         />
 
         <Text style={[shared.label, { marginTop: 12 }]}>Eventos</Text>
         <TextInput
+          ref={eventsRef}
           multiline
-          style={[shared.textArea, { minHeight: 120 }]}
+          style={[shared.textArea, { minHeight: 120, overflow: "hidden" }]}
           placeholder="Texto para eventos..."
           placeholderTextColor={colors.textDim}
           value={draftEventsText}
-          onChangeText={setDraftEventsText}
+          onChangeText={(text) => {
+            setDraftEventsText(text);
+          }}
+          scrollEnabled={false}
         />
 
         <View style={[shared.row, { marginTop: 12, gap: 8 }]}>

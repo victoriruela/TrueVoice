@@ -1,3 +1,14 @@
 # Prevent accidental commits of large archive files
 *.zip
 
+# Python cache
+__pycache__/
+
+# Installer transient build artifacts
+dist/staging/
+dist/tmp/
+dist/portable_staging*/
+dist/TrueVoice_pruebas/
+dist/TrueVoiceInstaller.exe
+dist/*.log
+
