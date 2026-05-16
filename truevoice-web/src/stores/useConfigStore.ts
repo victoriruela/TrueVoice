@@ -1,5 +1,19 @@
 import { create } from "zustand";
-import { getConfig, updateConfig } from "../api";
+import {
+  getConfig,
+  updateConfig,
+  listNarrators as apiListNarrators,
+  upsertNarrator as apiUpsertNarrator,
+  updateNarratorApi,
+  deleteNarratorApi,
+  setPrincipalNarratorApi,
+  addCustomModel as apiAddCustomModel,
+  deleteCustomModel as apiDeleteCustomModel,
+  type NarratorConfig,
+  type CustomModel,
+} from "../api";
+
+export type { NarratorConfig, CustomModel };
 
 export interface AppConfig {
   selected_voice: string;
@@ -25,6 +39,14 @@ export interface AppConfig {
   last_race_session: string;
   audio_output_folder: string;
   texts_output_folder: string;
+  voice_speed_factor: number;
+  max_words_per_chunk: number;
+  quantize_llm: string;
+  temperature: number;
+  top_p: number;
+  use_sampling: boolean;
+  narrators: NarratorConfig[];
+  custom_models: CustomModel[];
   [key: string]: any;
 }
 
@@ -52,6 +74,14 @@ const DEFAULT_CONFIG: AppConfig = {
   last_race_session: "",
   audio_output_folder: "",
   texts_output_folder: "",
+  voice_speed_factor: 1.0,
+  max_words_per_chunk: 250,
+  quantize_llm: "none",
+  temperature: 0.95,
+  top_p: 0.95,
+  use_sampling: false,
+  narrators: [],
+  custom_models: [],
 };
 
 interface ConfigStore {
@@ -59,6 +89,13 @@ interface ConfigStore {
   loading: boolean;
   fetch: () => Promise<void>;
   patch: (updates: Partial<AppConfig>) => Promise<void>;
+  fetchNarrators: () => Promise<void>;
+  addNarrator: (n: NarratorConfig) => Promise<void>;
+  updateNarrator: (key: string, n: Partial<NarratorConfig>) => Promise<void>;
+  deleteNarrator: (key: string) => Promise<void>;
+  setPrincipalNarrator: (key: string) => Promise<void>;
+  addCustomModel: (m: CustomModel) => Promise<void>;
+  deleteCustomModel: (id: string) => Promise<void>;
 }
 
 export const useConfigStore = create<ConfigStore>((set, get) => ({
@@ -84,6 +121,75 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
       await updateConfig(updates);
     } catch {
       /* silent — local state already updated */
+    }
+  },
+
+  fetchNarrators: async () => {
+    try {
+      const { data } = await apiListNarrators();
+      set({ config: { ...get().config, narrators: data || [] } });
+    } catch {
+      /* silent */
+    }
+  },
+
+  addNarrator: async (n) => {
+    try {
+      const { data } = await apiUpsertNarrator(n);
+      set({ config: { ...get().config, narrators: data || [] } });
+    } catch {
+      /* silent */
+    }
+  },
+
+  updateNarrator: async (key, patch) => {
+    try {
+      await updateNarratorApi(key, patch);
+      await get().fetchNarrators();
+    } catch {
+      /* silent */
+    }
+  },
+
+  deleteNarrator: async (key) => {
+    try {
+      await deleteNarratorApi(key);
+      await get().fetchNarrators();
+    } catch {
+      /* silent */
+    }
+  },
+
+  setPrincipalNarrator: async (key) => {
+    try {
+      const { data } = await setPrincipalNarratorApi(key);
+      set({ config: { ...get().config, narrators: data || [] } });
+    } catch {
+      /* silent */
+    }
+  },
+
+  addCustomModel: async (m) => {
+    try {
+      const { data } = await apiAddCustomModel(m);
+      set({ config: { ...get().config, custom_models: data || [] } });
+    } catch {
+      /* silent */
+    }
+  },
+
+  deleteCustomModel: async (id) => {
+    try {
+      await apiDeleteCustomModel(id);
+      const cur = get().config.custom_models || [];
+      set({
+        config: {
+          ...get().config,
+          custom_models: cur.filter((m) => m.id !== id),
+        },
+      });
+    } catch {
+      /* silent */
     }
   },
 }));
