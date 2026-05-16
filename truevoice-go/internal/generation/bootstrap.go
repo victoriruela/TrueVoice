@@ -314,7 +314,9 @@ func (m *Manager) installPythonDependencies(py string) error {
 
 	vibeVoicePath := filepath.Join(wd, "VibeVoice")
 	if fileExists(filepath.Join(vibeVoicePath, "pyproject.toml")) {
-		if err := pipInstall("-e", vibeVoicePath); err != nil {
+		// Install non-editable so pip doesn't need to write egg-info to the source dir
+		// (which may be in a read-only location like C:\Program Files\).
+		if err := pipInstall("--no-build-isolation", vibeVoicePath); err != nil {
 			return err
 		}
 	}
