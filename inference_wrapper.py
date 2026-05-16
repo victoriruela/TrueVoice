@@ -1,8 +1,12 @@
 import os
+import re
 import sys
-import torch
 import time
 import argparse
+import tempfile
+
+import torch
+import numpy as np
 
 # Maximizar uso de CPU: usar todos los cores disponibles
 _cpu_count = os.cpu_count() or 4
@@ -113,6 +117,57 @@ def parse_txt_script(txt_content: str):
         speaker_numbers.append(current_speaker)
     return scripts, speaker_numbers
 
+
+# ── Pause tag parsing ─────────────────────────────────────────────────
+_PAUSE_RE = re.compile(r"\[pause(?::(\d+))?\]", re.IGNORECASE)
+
+
+def parse_pause_tags(text: str):
+    """Splits text into [('text', str) | ('silence', ms_int)] segments."""
+    parts = []
+    last = 0
+    for m in _PAUSE_RE.finditer(text):
+        seg = text[last:m.start()].strip()
+        if seg:
+            parts.append(('text', seg))
+        ms = int(m.group(1)) if m.group(1) else 1000
+        parts.append(('silence', ms))
+        last = m.end()
+    tail = text[last:].strip()
+    if tail:
+        parts.append(('text', tail))
+    return parts if parts else [('text', text)]
+
+
+def chunk_text_by_words(text: str, max_words: int):
+    """Splits text into sub-chunks of at most max_words words, respecting sentence boundaries."""
+    if max_words <= 0:
+        return [text]
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks, current, count = [], [], 0
+    for sent in sentences:
+        words = len(sent.split())
+        if count + words > max_words and current:
+            chunks.append(' '.join(current))
+            current, count = [sent], words
+        else:
+            current.append(sent)
+            count += words
+    if current:
+        chunks.append(' '.join(current))
+    return chunks if chunks else [text]
+
+
+def _audio_to_numpy(audio_obj):
+    """Best-effort conversion of model output (tensor/list/np) to mono float numpy array."""
+    if hasattr(audio_obj, 'detach'):
+        arr = audio_obj.detach().cpu().numpy()
+    elif isinstance(audio_obj, np.ndarray):
+        arr = audio_obj
+    else:
+        arr = np.asarray(audio_obj)
+    return arr.squeeze()
+
 def main():
     parser = argparse.ArgumentParser(description="VibeVoice Wrapper Inference")
     parser.add_argument("--ddpm_steps", type=int, default=10)
@@ -125,7 +180,16 @@ def main():
     parser.add_argument("--disable_prefill", action="store_true")
     parser.add_argument("--cfg_scale", type=float, default=1.3)
     parser.add_argument("--seed", type=int, default=None)
-    
+
+    # Advanced generation parameters
+    parser.add_argument("--temperature", type=float, default=0.95)
+    parser.add_argument("--top_p", type=float, default=0.95)
+    parser.add_argument("--use_sampling", action="store_true", default=False)
+    parser.add_argument("--quantize_llm", type=str, default="none",
+                        choices=["none", "4bit", "8bit"])
+    parser.add_argument("--voice_speed_factor", type=float, default=1.0)
+    parser.add_argument("--max_words_per_chunk", type=int, default=250)
+
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -154,6 +218,28 @@ def main():
         path = voice_mapper.get_voice_path(name)
         voice_samples.append(path)
 
+    # ── Voice speed control ──────────────────────────────────────────
+    # Apply time-stretching to reference voices before they are passed to the processor.
+    if args.voice_speed_factor != 1.0:
+        try:
+            import librosa
+            import soundfile as sf
+            new_voice_samples = []
+            for vpath in voice_samples:
+                if vpath and os.path.exists(vpath):
+                    audio, sr = librosa.load(vpath, sr=None, mono=True)
+                    stretched = librosa.effects.time_stretch(audio, rate=args.voice_speed_factor)
+                    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                    tmp.close()
+                    sf.write(tmp.name, stretched, sr)
+                    new_voice_samples.append(tmp.name)
+                else:
+                    new_voice_samples.append(vpath)
+            voice_samples = new_voice_samples
+            print(f"Voice speed factor applied: {args.voice_speed_factor}", flush=True)
+        except Exception as e:
+            print(f"WARNING: voice speed factor failed ({e}), using original voices", flush=True)
+
     full_script = '\n'.join(scripts).replace("’", "'")
     
     processor = VibeVoiceProcessor.from_pretrained(args.model_path)
@@ -162,13 +248,40 @@ def main():
     # para no depender de SDPA (torch>=2.1.1) en runtimes empaquetados antiguos.
     load_dtype = torch.float32
     attn_impl = "flash_attention_2" if args.device == "cuda" else "eager"
-    
-    model = VibeVoiceForConditionalGenerationInference.from_pretrained(
-        args.model_path,
+
+    # ── Dynamic quantization (CUDA only) ─────────────────────────────
+    quantization_config = None
+    if args.device == "cuda" and args.quantize_llm != "none":
+        try:
+            from transformers import BitsAndBytesConfig
+            if args.quantize_llm == "4bit":
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.float16,
+                )
+            elif args.quantize_llm == "8bit":
+                quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+            print(f"Using quantization: {args.quantize_llm}", flush=True)
+        except ImportError:
+            print("WARNING: bitsandbytes no disponible, ignorando cuantización", flush=True)
+            quantization_config = None
+        except Exception as e:
+            print(f"WARNING: quantization setup failed ({e}), continuing without it", flush=True)
+            quantization_config = None
+
+    from_pretrained_kwargs = dict(
         torch_dtype=load_dtype,
         device_map=args.device,
         attn_implementation=attn_impl,
-        low_cpu_mem_usage=True,  # Carga shard a shard para evitar pico de RAM
+        low_cpu_mem_usage=True,
+    )
+    if quantization_config is not None:
+        from_pretrained_kwargs["quantization_config"] = quantization_config
+
+    model = VibeVoiceForConditionalGenerationInference.from_pretrained(
+        args.model_path,
+        **from_pretrained_kwargs,
     )
     
     if args.checkpoint_path:
@@ -178,31 +291,89 @@ def main():
     if hasattr(model, 'set_ddpm_inference_steps'):
         model.set_ddpm_inference_steps(num_steps=args.ddpm_steps)
 
-    inputs = processor(
-        text=[full_script],
-        voice_samples=[voice_samples],
-        padding=True,
-        return_tensors="pt",
-    ).to(args.device)
+    # ── Build generation config (sampling vs greedy) ─────────────────
+    if args.use_sampling:
+        gen_config = {
+            'do_sample': True,
+            'temperature': args.temperature,
+            'top_p': args.top_p,
+        }
+    else:
+        gen_config = {'do_sample': False}
 
-    print(f"Generating with cfg_scale={args.cfg_scale}, ddpm_steps={args.ddpm_steps}...")
-    start_time = time.time()
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=None,
-        cfg_scale=args.cfg_scale,
-        tokenizer=processor.tokenizer,
-        generation_config={'do_sample': False},
-        is_prefill=not args.disable_prefill,
+    def _generate_for_text(text_block: str):
+        """Run a single inference for a given script text and return numpy audio array."""
+        inputs = processor(
+            text=[text_block],
+            voice_samples=[voice_samples],
+            padding=True,
+            return_tensors="pt",
+        ).to(args.device)
+
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=None,
+            cfg_scale=args.cfg_scale,
+            tokenizer=processor.tokenizer,
+            generation_config=gen_config,
+            is_prefill=not args.disable_prefill,
+        )
+        return _audio_to_numpy(outputs.speech_outputs[0])
+
+    # ── Pause tag + chunking pipeline ────────────────────────────────
+    # 1) Split by pause tags. 2) For each text segment, chunk by words.
+    pause_segments = parse_pause_tags(full_script)
+
+    # Inspect sample rate from processor's audio config (fallback 24000)
+    sample_rate = 24000
+    try:
+        ac = getattr(processor, 'audio_processor', None) or getattr(processor, 'feature_extractor', None)
+        if ac is not None and hasattr(ac, 'sampling_rate'):
+            sample_rate = int(ac.sampling_rate)
+    except Exception:
+        pass
+
+    has_pause = any(kind == 'silence' for kind, _ in pause_segments)
+    will_chunk = any(
+        kind == 'text' and len(val.split()) > args.max_words_per_chunk
+        for kind, val in pause_segments
     )
-    print(f"Generation took {time.time() - start_time:.2f}s")
+
+    print(f"Generating with cfg_scale={args.cfg_scale}, ddpm_steps={args.ddpm_steps}, "
+          f"sampling={args.use_sampling}, pause_tags={has_pause}, chunking={will_chunk}...", flush=True)
+    start_time = time.time()
+
+    if not has_pause and not will_chunk:
+        audio_np = _generate_for_text(full_script)
+        final_audio = audio_np
+    else:
+        pieces = []
+        for kind, val in pause_segments:
+            if kind == 'silence':
+                n_samples = int(sample_rate * (val / 1000.0))
+                pieces.append(np.zeros(n_samples, dtype=np.float32))
+                continue
+            # text segment — chunk by words if needed
+            chunks = chunk_text_by_words(val, args.max_words_per_chunk)
+            for ch in chunks:
+                if not ch.strip():
+                    continue
+                # Reset seed before each chunk for stability/repeatability
+                if args.seed is not None:
+                    torch.manual_seed(args.seed)
+                a = _generate_for_text(ch)
+                pieces.append(a.astype(np.float32))
+        final_audio = np.concatenate(pieces) if pieces else np.zeros(1, dtype=np.float32)
+
+    print(f"Generation took {time.time() - start_time:.2f}s", flush=True)
 
     os.makedirs(args.output_dir, exist_ok=True)
     txt_filename = os.path.splitext(os.path.basename(args.txt_path))[0]
     output_path = os.path.join(args.output_dir, f"{txt_filename}_generated.wav")
-    
-    processor.save_audio(outputs.speech_outputs[0], output_path=output_path)
-    print(f"Saved to {output_path}")
+
+    # processor.save_audio expects torch-compatible input; pass a tensor
+    processor.save_audio(torch.from_numpy(final_audio), output_path=output_path)
+    print(f"Saved to {output_path}", flush=True)
 
 if __name__ == "__main__":
     main()
