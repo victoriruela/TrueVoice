@@ -19,3 +19,13 @@ truevoice-go/frontend_config.json
 truevoice-go/contexts/
 truevoice-go/internal/server/contexts/contexts.json
 
+# Runtime data directories (user content, sessions)
+voices/
+race_sessions/
+
+# Compiled binaries
+truevoice-go/*.exe
+
+# IDE / editor artifacts
+.idea/
+
