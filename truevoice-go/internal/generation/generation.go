@@ -144,17 +144,33 @@ func projectRoot() string {
 // ── Generate ───────────────────────────────────────────────────────
 
 type GenerateRequest struct {
-	Text             string  `json:"text"`
-	VoiceName        string  `json:"voice_name"`
-	CustomOutputName string  `json:"custom_output_name"`
-	OutputDirectory  string  `json:"output_directory"`
-	AudioIDHint      string  `json:"audio_id_hint"`
-	Model            string  `json:"model"`
-	OutputFormat     string  `json:"output_format"`
-	CfgScale         float64 `json:"cfg_scale"`
-	DdpmSteps        int     `json:"ddpm_steps"`
-	DisablePrefill   bool    `json:"disable_prefill"`
+	Text             string   `json:"text"`
+	VoiceName        string   `json:"voice_name"`
+	CustomOutputName string   `json:"custom_output_name"`
+	OutputDirectory  string   `json:"output_directory"`
+	AudioIDHint      string   `json:"audio_id_hint"`
+	Model            string   `json:"model"`
+	OutputFormat     string   `json:"output_format"`
+	CfgScale         float64  `json:"cfg_scale"`
+	DdpmSteps        int      `json:"ddpm_steps"`
+	DisablePrefill   bool     `json:"disable_prefill"`
+
+	// Advanced generation parameters
+	VoiceSpeedFactor float64  `json:"voice_speed_factor"`
+	MaxWordsPerChunk int      `json:"max_words_per_chunk"`
+	QuantizeLLM      string   `json:"quantize_llm"`
+	Temperature      float64  `json:"temperature"`
+	TopP             float64  `json:"top_p"`
+	UseSampling      bool     `json:"use_sampling"`
+	Seed             *int     `json:"seed"`
+
+	// Multi-speaker: when MultiSpeaker is true, Text already contains "Speaker N:" markers
+	// and VoiceNames carries one voice per slot (slot index = position+1).
+	MultiSpeaker bool     `json:"multi_speaker"`
+	VoiceNames   []string `json:"voice_names"`
 }
+
+var narratorTagRe = regexp.MustCompile(`\[([^\]]+)\]:`)
 
 type GenerateResponse struct {
 	Success  bool    `json:"success"`
@@ -190,6 +206,100 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.DdpmSteps == 0 {
 		req.DdpmSteps = 30
+	}
+	if req.VoiceSpeedFactor == 0 {
+		if v := m.cfg.GetFloat("voice_speed_factor"); v != 0 {
+			req.VoiceSpeedFactor = v
+		} else {
+			req.VoiceSpeedFactor = 1.0
+		}
+	}
+	if req.MaxWordsPerChunk == 0 {
+		if v := m.cfg.GetFloat("max_words_per_chunk"); v != 0 {
+			req.MaxWordsPerChunk = int(v)
+		} else {
+			req.MaxWordsPerChunk = 250
+		}
+	}
+	if req.QuantizeLLM == "" {
+		if v := m.cfg.GetString("quantize_llm"); v != "" {
+			req.QuantizeLLM = v
+		} else {
+			req.QuantizeLLM = "none"
+		}
+	}
+	if req.Temperature == 0 {
+		if v := m.cfg.GetFloat("temperature"); v != 0 {
+			req.Temperature = v
+		} else {
+			req.Temperature = 0.95
+		}
+	}
+	if req.TopP == 0 {
+		if v := m.cfg.GetFloat("top_p"); v != 0 {
+			req.TopP = v
+		} else {
+			req.TopP = 0.95
+		}
+	}
+
+	// ── Narrator system ──────────────────────────────────────────
+	narrators := m.cfg.Narrators()
+	if len(narrators) > 0 {
+		if narratorTagRe.MatchString(req.Text) {
+			// Multi-narrator text: replace [key]: markers with Speaker N:
+			narratorMap := map[string]config.NarratorConfig{}
+			for _, n := range narrators {
+				narratorMap[n.Key] = n
+			}
+			usedSlots := map[int]string{}
+			req.Text = narratorTagRe.ReplaceAllStringFunc(req.Text, func(match string) string {
+				key := narratorTagRe.FindStringSubmatch(match)[1]
+				if n, ok := narratorMap[key]; ok && n.SpeakerSlot > 0 {
+					usedSlots[n.SpeakerSlot] = n.Voice
+					return fmt.Sprintf("Speaker %d:", n.SpeakerSlot)
+				}
+				return match
+			})
+			if len(usedSlots) > 0 {
+				req.MultiSpeaker = true
+				maxSlot := 0
+				for slot := range usedSlots {
+					if slot > maxSlot {
+						maxSlot = slot
+					}
+				}
+				voiceNames := make([]string, maxSlot)
+				for slot, voice := range usedSlots {
+					voiceNames[slot-1] = m.voices.ResolveVoice(voice)
+				}
+				// Fill any unused slot with the principal (or first) narrator voice
+				fallbackVoice := ""
+				for _, n := range narrators {
+					if n.IsPrincipal {
+						fallbackVoice = m.voices.ResolveVoice(n.Voice)
+						break
+					}
+				}
+				if fallbackVoice == "" && len(narrators) > 0 {
+					fallbackVoice = m.voices.ResolveVoice(narrators[0].Voice)
+				}
+				for i, v := range voiceNames {
+					if v == "" {
+						voiceNames[i] = fallbackVoice
+					}
+				}
+				req.VoiceNames = voiceNames
+			}
+		} else if req.VoiceName == "" || req.VoiceName == "Alice" {
+			// Default to principal narrator when caller didn't specify a voice.
+			for _, n := range narrators {
+				if n.IsPrincipal && n.Voice != "" {
+					req.VoiceName = n.Voice
+					break
+				}
+			}
+		}
 	}
 
 	// Resolve voice
@@ -241,11 +351,31 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 		"-u",
 		scriptPath,
 		"--text", req.Text,
-		"--voice-name", voicePath,
 		"--model", req.Model,
 		"--output", outputPath,
 		"--cfg-scale", fmt.Sprintf("%.2f", req.CfgScale),
 		"--ddpm-steps", strconv.Itoa(req.DdpmSteps),
+		"--voice-speed-factor", fmt.Sprintf("%.3f", req.VoiceSpeedFactor),
+		"--max-words-per-chunk", strconv.Itoa(req.MaxWordsPerChunk),
+		"--quantize-llm", req.QuantizeLLM,
+		"--temperature", fmt.Sprintf("%.3f", req.Temperature),
+		"--top-p", fmt.Sprintf("%.3f", req.TopP),
+	}
+	// Voices: multi-speaker uses VoiceNames; single-speaker uses voicePath.
+	args = append(args, "--voice-name")
+	if req.MultiSpeaker && len(req.VoiceNames) > 0 {
+		args = append(args, req.VoiceNames...)
+	} else {
+		args = append(args, voicePath)
+	}
+	if req.MultiSpeaker {
+		args = append(args, "--multi-speaker")
+	}
+	if req.UseSampling {
+		args = append(args, "--use-sampling")
+	}
+	if req.Seed != nil {
+		args = append(args, "--seed", strconv.Itoa(*req.Seed))
 	}
 	if req.DisablePrefill {
 		args = append(args, "--disable-prefill")

@@ -32,8 +32,36 @@ type AppConfig struct {
 	AudioOutputFolder string `json:"audio_output_folder"`
 	TextsOutputFolder string `json:"texts_output_folder"`
 
+	// Advanced generation parameters
+	VoiceSpeedFactor float64 `json:"voice_speed_factor"`
+	MaxWordsPerChunk int     `json:"max_words_per_chunk"`
+	QuantizeLLM      string  `json:"quantize_llm"`
+	Temperature      float64 `json:"temperature"`
+	TopP             float64 `json:"top_p"`
+	UseSampling      bool    `json:"use_sampling"`
+
+	// Narrator system & custom models
+	Narrators    []NarratorConfig `json:"narrators"`
+	CustomModels []CustomModel    `json:"custom_models"`
+
 	// Extra holds unknown keys for forward compatibility.
 	Extra map[string]any `json:"-"`
+}
+
+// NarratorConfig defines a named narrator with a voice and speaker slot.
+type NarratorConfig struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Voice       string `json:"voice"`
+	IsPrincipal bool   `json:"is_principal"`
+	SpeakerSlot int    `json:"speaker_slot"`
+}
+
+// CustomModel is a user-registered VibeVoice model (HF id or local path).
+type CustomModel struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Size string `json:"size"`
 }
 
 // Store provides thread-safe access to the config file.
@@ -68,6 +96,14 @@ func Default() *Store {
 			"last_race_session":   "",
 			"audio_output_folder": "",
 			"texts_output_folder": "",
+			"voice_speed_factor":  1.0,
+			"max_words_per_chunk": 250.0,
+			"quantize_llm":        "none",
+			"temperature":         0.95,
+			"top_p":               0.95,
+			"use_sampling":        false,
+			"narrators":           []NarratorConfig{},
+			"custom_models":       []CustomModel{},
 		},
 	}
 	return s
@@ -172,6 +208,110 @@ func (s *Store) GetBool(key string) bool {
 	}
 	b, _ := v.(bool)
 	return b
+}
+
+// Narrators returns the configured narrator list (typed copy).
+func (s *Store) Narrators() []NarratorConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return decodeNarrators(s.data["narrators"])
+}
+
+// SetNarrators replaces the narrator list and persists.
+func (s *Store) SetNarrators(list []NarratorConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data["narrators"] = list
+	return s.persist()
+}
+
+// CustomModels returns the configured custom-models list (typed copy).
+func (s *Store) CustomModels() []CustomModel {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return decodeCustomModels(s.data["custom_models"])
+}
+
+// SetCustomModels replaces the custom models list and persists.
+func (s *Store) SetCustomModels(list []CustomModel) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data["custom_models"] = list
+	return s.persist()
+}
+
+func decodeNarrators(raw any) []NarratorConfig {
+	if raw == nil {
+		return []NarratorConfig{}
+	}
+	// Already typed
+	if typed, ok := raw.([]NarratorConfig); ok {
+		out := make([]NarratorConfig, len(typed))
+		copy(out, typed)
+		return out
+	}
+	// From JSON: []any of map[string]any
+	if items, ok := raw.([]any); ok {
+		out := make([]NarratorConfig, 0, len(items))
+		for _, it := range items {
+			m, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			n := NarratorConfig{}
+			if v, ok := m["key"].(string); ok {
+				n.Key = v
+			}
+			if v, ok := m["name"].(string); ok {
+				n.Name = v
+			}
+			if v, ok := m["voice"].(string); ok {
+				n.Voice = v
+			}
+			if v, ok := m["is_principal"].(bool); ok {
+				n.IsPrincipal = v
+			}
+			if v, ok := m["speaker_slot"].(float64); ok {
+				n.SpeakerSlot = int(v)
+			}
+			out = append(out, n)
+		}
+		return out
+	}
+	return []NarratorConfig{}
+}
+
+func decodeCustomModels(raw any) []CustomModel {
+	if raw == nil {
+		return []CustomModel{}
+	}
+	if typed, ok := raw.([]CustomModel); ok {
+		out := make([]CustomModel, len(typed))
+		copy(out, typed)
+		return out
+	}
+	if items, ok := raw.([]any); ok {
+		out := make([]CustomModel, 0, len(items))
+		for _, it := range items {
+			m, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			cm := CustomModel{}
+			if v, ok := m["id"].(string); ok {
+				cm.ID = v
+			}
+			if v, ok := m["name"].(string); ok {
+				cm.Name = v
+			}
+			if v, ok := m["size"].(string); ok {
+				cm.Size = v
+			}
+			out = append(out, cm)
+		}
+		return out
+	}
+	return []CustomModel{}
 }
 
 func (s *Store) persist() error {
