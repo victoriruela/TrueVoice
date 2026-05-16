@@ -458,8 +458,16 @@ def generate_speech_vibevoice(text, output_path,
                                model_name="microsoft/VibeVoice-1.5b",
                                voice_name="Alice", repo_path=None,
                                disable_prefill=False,
-                               cfg_scale=1.5,  # Añadido parámetro
-                               ddpm_steps=20):  # Añadido parámetro
+                               cfg_scale=1.5,
+                               ddpm_steps=20,
+                               multi_speaker=False,
+                               voice_speed_factor=1.0,
+                               max_words_per_chunk=250,
+                               quantize_llm="none",
+                               temperature=0.95,
+                               top_p=0.95,
+                               use_sampling=False,
+                               seed=None):
     """
     Genera audio desde texto usando VibeVoice.
 
@@ -475,21 +483,25 @@ def generate_speech_vibevoice(text, output_path,
     """
     voices_dir = repo_path / "demo" / "voices"
 
-    # Resuelve el nombre de voz al archivo real (o ruta absoluta)
-    resolved_voice = resolve_voice_name(voice_name, voices_dir)
-    if resolved_voice is None:
-        available = [f.stem for f in voices_dir.glob("*.wav")]
-        print(f"❌ Voz '{voice_name}' no encontrada.")
-        print(f"   Voces disponibles: {', '.join(available) if available else 'ninguna'}")
-        print(f"   Alias soportados:  {', '.join(DEFAULT_VOICES.keys())}")
-        return False
+    # voice_name puede ser un único valor (str) o una lista de voces (multi-speaker).
+    if isinstance(voice_name, (list, tuple)):
+        voice_inputs = list(voice_name)
+    else:
+        voice_inputs = [voice_name]
 
-    # Para el script de inferencia, si es una ruta absoluta, se usa tal cual.
-    # Si no, se asume que es el nombre base que el VoiceMapper buscará en voices_dir.
-    speaker_param = resolved_voice
-    if not os.path.isabs(speaker_param):
-        # Si no es absoluta, extraemos solo el stem (ya que inference_wrapper/VoiceMapper busca .wav)
-        speaker_param = Path(resolved_voice).stem
+    speaker_params = []
+    for vn in voice_inputs:
+        resolved_voice = resolve_voice_name(vn, voices_dir)
+        if resolved_voice is None:
+            available = [f.stem for f in voices_dir.glob("*.wav")]
+            print(f"❌ Voz '{vn}' no encontrada.")
+            print(f"   Voces disponibles: {', '.join(available) if available else 'ninguna'}")
+            print(f"   Alias soportados:  {', '.join(DEFAULT_VOICES.keys())}")
+            return False
+        sp = resolved_voice
+        if not os.path.isabs(sp):
+            sp = Path(resolved_voice).stem
+        speaker_params.append(sp)
 
     output_ext = Path(output_path).suffix.lower()
     if output_ext not in SUPPORTED_OUTPUT_FORMATS:
@@ -497,16 +509,22 @@ def generate_speech_vibevoice(text, output_path,
         output_path = str(Path(output_path).with_suffix(".wav"))
 
     print(f" Texto:      {text[:100]}{'...' if len(text) > 100 else ''}")
-    print(f" Voz:        {resolved_voice}")
+    print(f" Voces:      {', '.join(speaker_params)}")
     print(f" Modelo:     {model_name}")
     print(f" Formato:    {Path(output_path).suffix.upper()[1:]}")
     print(f" CFG Scale:  {cfg_scale}")
     print(f" DDPM Steps: {ddpm_steps}")
+    print(f" Multi-spk:  {multi_speaker}")
+    print(f" Quantize:   {quantize_llm}")
 
-    # Escribe el texto en el formato que espera el script de VibeVoice
+    # Escribe el texto en el formato que espera el script de VibeVoice.
+    # En modo multi-speaker el texto ya viene con marcadores "Speaker N:" desde el caller.
     temp_txt = "temp_input.txt"
     with open(temp_txt, "w", encoding="utf-8") as f:
-        f.write(f"Speaker 1: {text}")
+        if multi_speaker:
+            f.write(text)
+        else:
+            f.write(f"Speaker 1: {text}")
 
     # demo_script = repo_path / "demo" / "inference_from_file.py"
     # Usamos nuestro wrapper para aplicar parches y dejar el repo original intacto
@@ -523,13 +541,22 @@ def generate_speech_vibevoice(text, output_path,
         sys.executable, str(demo_script),
         "--model_path", model_name,
         "--txt_path", temp_txt,
-        "--speaker_names", speaker_param,
+        "--speaker_names", *speaker_params,
         "--output_dir", str(output_dir),
-        "--cfg_scale", str(cfg_scale),      # Pasa cfg_scale
-        "--ddpm_steps", str(ddpm_steps),    # Pasa ddpm_steps
+        "--cfg_scale", str(cfg_scale),
+        "--ddpm_steps", str(ddpm_steps),
+        "--voice_speed_factor", str(voice_speed_factor),
+        "--max_words_per_chunk", str(max_words_per_chunk),
+        "--quantize_llm", quantize_llm,
+        "--temperature", str(temperature),
+        "--top_p", str(top_p),
     ]
+    if use_sampling:
+        cmd.append("--use_sampling")
     if disable_prefill:
         cmd.append("--disable_prefill")
+    if seed is not None:
+        cmd += ["--seed", str(seed)]
 
     # Configura el PYTHONPATH para que encuentre el paquete 'vibevoice'
     env = os.environ.copy()
@@ -647,8 +674,8 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
                         help="Tiempo de inicio del fragmento en formato HH:MM:SS (para --youtube-voice)")
     parser.add_argument("--end", type=str, default=None,
                         help="Tiempo de fin del fragmento en formato HH:MM:SS (para --youtube-voice)")
-    parser.add_argument("--voice-name", "-v", type=str, default="Alice",
-                        help="Nombre de la voz a usar o guardar (default: Alice). Ver --list-voices.")
+    parser.add_argument("--voice-name", "-v", type=str, nargs='+', default=["Alice"],
+                        help="Una o más voces (multi-speaker). Ver --list-voices. Default: Alice.")
     parser.add_argument("--model", "-m", type=str,
                         default="microsoft/VibeVoice-1.5b",
                         help="Modelo a usar (default: microsoft/VibeVoice-1.5b)")
@@ -666,6 +693,23 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
     parser.add_argument("--list-voices", "-l", action="store_true",
                         help="Listar voces disponibles y salir")
 
+    # Modo y parámetros avanzados de generación
+    parser.add_argument("--multi-speaker", action="store_true",
+                        help="El texto ya viene con marcadores 'Speaker N:'; no envolver.")
+    parser.add_argument("--voice-speed-factor", type=float, default=1.0,
+                        help="Factor de velocidad aplicado a las voces de referencia (0.8-1.2).")
+    parser.add_argument("--max-words-per-chunk", type=int, default=250,
+                        help="Tamaño máximo de bloque en palabras antes de trocear el texto.")
+    parser.add_argument("--quantize-llm", type=str, default="none",
+                        choices=["none", "4bit", "8bit"],
+                        help="Cuantización dinámica del LLM (solo en GPU CUDA).")
+    parser.add_argument("--temperature", type=float, default=0.95)
+    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--use-sampling", action="store_true", default=False,
+                        help="Activa sampling (temperature/top_p). Por defecto, greedy.")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Semilla aleatoria para reproducibilidad.")
+
     args = parser.parse_args()
 
     check_dependencies()
@@ -676,7 +720,10 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
         list_available_voices(voices_dir)
         return
 
-    voice_name = args.voice_name
+    # args.voice_name ahora es lista (nargs='+').
+    voice_names = args.voice_name if isinstance(args.voice_name, list) else [args.voice_name]
+    voice_name = voice_names[0]
+    primary_voice = voice_names[0]
 
     # Extrae voz desde YouTube
     if args.youtube_voice:
@@ -689,11 +736,12 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
             youtube_url=args.youtube_voice,
             start_time=args.start,
             end_time=args.end,
-            voice_name=args.voice_name,
+            voice_name=primary_voice,
             voices_dir=voices_dir,
         )
         if extracted:
             voice_name = extracted
+            voice_names = [extracted]
         else:
             print("❌ No se pudo extraer la voz desde YouTube")
             sys.exit(1)
@@ -720,9 +768,10 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
             print(f"❌ El archivo de referencia no existe: {reference_audio}")
             sys.exit(1)
 
-        cloned = clone_voice(reference_audio, args.voice_name, voices_dir)
+        cloned = clone_voice(reference_audio, primary_voice, voices_dir)
         if cloned:
             voice_name = cloned
+            voice_names = [cloned]
 
         if reference_audio == "temp_extracted_audio.wav" and os.path.exists(reference_audio):
             os.remove(reference_audio)
@@ -758,10 +807,18 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
 
                 output_file = f"output_{counter}{output_ext}"
                 if generate_speech_vibevoice(text, output_file, args.model,
-                                             voice_name, repo_path,
+                                             voice_names, repo_path,
                                              args.disable_prefill,
                                              args.cfg_scale,
-                                             args.ddpm_steps):
+                                             args.ddpm_steps,
+                                             multi_speaker=args.multi_speaker,
+                                             voice_speed_factor=args.voice_speed_factor,
+                                             max_words_per_chunk=args.max_words_per_chunk,
+                                             quantize_llm=args.quantize_llm,
+                                             temperature=args.temperature,
+                                             top_p=args.top_p,
+                                             use_sampling=args.use_sampling,
+                                             seed=args.seed):
                     counter += 1
                     print(f" Guardado: {output_file}\n")
 
@@ -774,11 +831,19 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
             text=args.text,
             output_path=args.output,
             model_name=args.model,
-            voice_name=voice_name,
+            voice_name=voice_names,
             repo_path=repo_path,
             disable_prefill=args.disable_prefill,
-            cfg_scale=args.cfg_scale,      # Pasa el parámetro
-            ddpm_steps=args.ddpm_steps     # Pasa el parámetro
+            cfg_scale=args.cfg_scale,
+            ddpm_steps=args.ddpm_steps,
+            multi_speaker=args.multi_speaker,
+            voice_speed_factor=args.voice_speed_factor,
+            max_words_per_chunk=args.max_words_per_chunk,
+            quantize_llm=args.quantize_llm,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            use_sampling=args.use_sampling,
+            seed=args.seed,
         )
         if success:
             print("✨ Proceso completado exitosamente")
