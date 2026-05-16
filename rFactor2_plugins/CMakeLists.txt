@@ -30,8 +30,11 @@ target_include_directories(TrueVoicePlugin PRIVATE
 )
 
 # rF2 requires 4-byte struct packing on MSVC
+# Use static CRT (/MT) to avoid conflicts with rFactor2's MSVCR120 runtime
 if(MSVC)
     target_compile_options(TrueVoicePlugin PRIVATE /W3)
+    set_property(TARGET TrueVoicePlugin PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 # ── Output naming ─────────────────────────────────────────────────

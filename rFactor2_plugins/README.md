@@ -53,8 +53,9 @@ El resultado es `build\Release\TrueVoicePlugin.dll`.
 
 3. Al finalizar cada sesión (carrera, clasificación, práctica), el plugin genera:
    ```
-   <rFactor 2>\UserData\Log\TrueVoice_events.json
+  <rFactor 2>\UserData\Log\{timestamp}_{nombre_circuito}_events.json
    ```
+  Ejemplo: `20260409_014950_Suzuka_events.json`
 
 4. Importa ese archivo JSON en TrueVoice desde la pestaña **Carrera** > **Importar JSON Plugin**.
 
