@@ -145,6 +145,11 @@ $shortcut.Save()
 Write-InstallLog "Acceso directo creado en escritorio"
 
 Write-InstallLog "Inicializando runtime (descarga VibeVoice y modelo 1.5B). Puede tardar varios minutos"
+$runtimeDir = Join-Path $installDir "runtime"
+New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+$env:TRUEVOICE_RUNTIME_DIR = $runtimeDir
+Write-InstallLog "Runtime fijado en $runtimeDir"
+
 function Get-StageProgress {
   param([string]$Stage)
 
@@ -163,6 +168,7 @@ function Get-StageProgress {
 $proc = Start-Process -FilePath (Join-Path $installDir "truevoice.exe") -WorkingDirectory $installDir -PassThru
 $bootstrapStarted = $false
 $ready = $false
+$fatalBootstrapError = ""
 Write-InstallLog "Servidor de bootstrap iniciado (PID=$($proc.Id))"
 
 for ($i = 0; $i -lt 720; $i++) {
@@ -196,7 +202,8 @@ for ($i = 0; $i -lt 720; $i++) {
     }
 
     if ($stage -eq "failed") {
-      throw "Bootstrap fallo: $($statusObj.error)"
+      $fatalBootstrapError = "Bootstrap fallo: $($statusObj.error)"
+      break
     }
   } catch {
     # El servidor puede no estar listo aun; se sigue intentando hasta timeout.
@@ -208,6 +215,10 @@ Write-Progress -Id 1 -Activity "Instalando TrueVoice" -Completed
 
 if (-not $ready) {
   try { Stop-Process -Id $proc.Id -Force } catch {}
+  if ($fatalBootstrapError) {
+    Write-InstallLog "ERROR: $fatalBootstrapError"
+    throw $fatalBootstrapError
+  }
   Write-InstallLog "ERROR: Timeout esperando bootstrap del runtime/modelo"
   throw "Timeout esperando bootstrap del runtime/modelo."
 }
@@ -230,8 +241,12 @@ if ((Split-Path -Leaf $appRoot) -eq "dist") {
 
 $goExe = Join-Path $appRoot "truevoice-go\\cmd\\truevoice"
 $installedExe = Join-Path $appRoot "truevoice.exe"
+$runtimeDir = Join-Path $appRoot "runtime"
 
 if (Test-Path $installedExe) {
+  New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+  $env:TRUEVOICE_RUNTIME_DIR = $runtimeDir
+  Write-Host "Runtime configurado en: $runtimeDir"
   Write-Host "Lanzando instalacion de TrueVoice..."
   & $installedExe
   exit $LASTEXITCODE
@@ -343,11 +358,26 @@ $iexpress = Join-Path $env:WINDIR 'System32\\iexpress.exe'
 if (-not (Test-Path $iexpress)) {
   throw 'No se encontro iexpress.exe en el sistema.'
 }
-& $iexpress /N /Q $sedPath
-$iexpressExit = $LASTEXITCODE
+$iexpressProc = Start-Process -FilePath $iexpress -ArgumentList @('/N', '/Q', $sedPath) -PassThru
 
-for ($i = 0; $i -lt 60 -and -not (Test-Path $installerPath); $i++) {
-  Start-Sleep -Seconds 1
+$maxWaitSeconds = 1800
+$elapsedSeconds = 0
+while (-not $iexpressProc.HasExited -and $elapsedSeconds -lt $maxWaitSeconds) {
+  Wait-Process -Id $iexpressProc.Id -Timeout 1 -ErrorAction SilentlyContinue
+  $elapsedSeconds++
+}
+
+if (-not $iexpressProc.HasExited) {
+  try { Stop-Process -Id $iexpressProc.Id -Force } catch {}
+  throw "Timeout esperando IExpress despues de $maxWaitSeconds segundos."
+}
+
+$iexpressExit = $iexpressProc.ExitCode
+
+if (-not (Test-Path $installerPath)) {
+  for ($i = 0; $i -lt 120 -and -not (Test-Path $installerPath); $i++) {
+    [System.Threading.Thread]::Sleep(1000)
+  }
 }
 
 $installerInfo = Get-Item -LiteralPath $installerPath -ErrorAction SilentlyContinue
@@ -359,7 +389,19 @@ if ($rcxTmp -and ((-not $installerInfo) -or $installerInfo.Length -lt 1000000)) 
   if (Test-Path $installerPath) {
     Remove-Item -Force $installerPath
   }
-  Move-Item -LiteralPath $rcxTmp.FullName -Destination $installerPath -Force
+
+  $moved = $false
+  for ($attempt = 1; $attempt -le 20 -and -not $moved; $attempt++) {
+    try {
+      Move-Item -LiteralPath $rcxTmp.FullName -Destination $installerPath -Force
+      $moved = $true
+    } catch {
+      if ($attempt -eq 20) {
+        throw
+      }
+      Start-Sleep -Milliseconds 500
+    }
+  }
 }
 
 if (-not (Test-Path $installerPath)) {

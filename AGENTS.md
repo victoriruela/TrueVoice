@@ -123,7 +123,7 @@ TrueVoice/
 |  +- AGENTS.md                      # Frontend-specific rules
 +- vibevoice_app.py                  # CLI sidecar
 +- inference_wrapper.py              # Wrapper de inferencia
-+- patches.py                        # Parches de compatibilidad VibeVoice
++- patches.py                        # Parches de compatibilidad de runtime (VibeVoice/Transformers/Torch)
 +- VibeVoice/                        # Paquete VibeVoice
 +- frontend_config.json              # Config persistente
 +- contexts/                         # Contextos JSON storage
@@ -154,11 +154,14 @@ Dependencias Python del sidecar:
 - transformers, accelerate, huggingface_hub
 - soundfile, scipy, datasets, diffusers, peft, librosa
 - VibeVoice editable (`pip install -e ./VibeVoice`)
+- En CPU, `inference_wrapper.py` fuerza `attn_implementation="eager"` para evitar el requisito SDPA de Transformers en runtimes con torch antiguo.
+- `patches.py` aplica compatibilidad para `load_state_dict(assign=...)` cuando Transformers nuevo corre sobre torch antiguo.
 
 ## Variables de Entorno
 
 | Variable | Defecto | Proposito |
 |----------|---------|-----------|
+| TRUEVOICE_RUNTIME_DIR | `<install_dir>/runtime` en instalador; si no, `%LOCALAPPDATA%/TrueVoice/runtime` | Fuerza la ruta del runtime Python/modelos para evitar problemas de perfiles roaming |
 | HF_HOME | ~/.cache/huggingface | Cache de modelos |
 | TRANSFORMERS_CACHE | $HF_HOME/transformers | Cache transformers |
 | MKL_NUM_THREADS | 0 | Paralelismo MKL |
@@ -259,6 +262,23 @@ powershell -ExecutionPolicy Bypass -File .\build_installer.ps1
 Notas de instalacion:
 - El instalador crea acceso directo de escritorio (`TrueVoice.lnk`) al launcher.
 - Durante la instalacion se ejecuta bootstrap del runtime para descargar dependencias de VibeVoice y el modelo `microsoft/VibeVoice-1.5b`.
+- El empaquetado con IExpress en `dist/build_installer.ps1` espera la finalizacion del proceso para evitar fallos por timeout en equipos lentos.
+
+### Build paquete portable ZIP (runtime + modelo incluidos)
+
+```bash
+cd dist
+powershell -ExecutionPolicy Bypass -File .\build_portable_zip.ps1
+# Genera: dist/TrueVoicePortable.zip
+# El ZIP incluye: runtime Python, dependencias, modelo VibeVoice 1.5B,
+# truevoice.exe, start_app.bat y stop_app.bat
+# Si TrueVoicePortable.zip esta bloqueado, genera TrueVoicePortable_YYYYMMDD_HHMMSS.zip
+```
+
+Notas del paquete portable:
+- Requiere que exista al menos un runtime listo con `.ready` y el modelo `microsoft/VibeVoice-1.5b` en alguna ruta candidata (`LOCALAPPDATA`, `APPDATA` o instalaciones previas en `Program Files`).
+- `start_app.bat` fija `TRUEVOICE_RUNTIME_DIR` al runtime incluido en el ZIP y abre la app en `http://localhost:8000/app`.
+- `stop_app.bat` detiene `truevoice.exe` y los `python.exe` del runtime portable.
 
 Servicios:
 - App + API: http://localhost:8000/app

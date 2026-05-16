@@ -8,8 +8,12 @@ if ((Split-Path -Leaf $appRoot) -eq "dist") {
 
 $goExe = Join-Path $appRoot "truevoice-go\\cmd\\truevoice"
 $installedExe = Join-Path $appRoot "truevoice.exe"
+$runtimeDir = Join-Path $appRoot "runtime"
 
 if (Test-Path $installedExe) {
+  New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+  $env:TRUEVOICE_RUNTIME_DIR = $runtimeDir
+  Write-Host "Runtime configurado en: $runtimeDir"
   Write-Host "Lanzando instalacion de TrueVoice..."
   & $installedExe
   exit $LASTEXITCODE

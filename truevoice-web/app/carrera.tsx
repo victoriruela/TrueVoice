@@ -204,16 +204,21 @@ function CarreraContent() {
     }
   }, []);
 
-  // Auto-resize intro textarea
-  const autoResizeIntro = useCallback(() => {
-    const el = introTextareaRef.current?._node ?? introTextareaRef.current;
+  // Generic auto-resize for any textarea node
+  const autoResizeEl = useCallback((raw: any, minHeight = 40) => {
+    const el = raw?._node ?? raw;
     if (el && el.style) {
       el.style.overflow = "hidden";
       el.style.overflowY = "hidden";
       el.style.height = "auto";
-      el.style.height = `${Math.max(80, el.scrollHeight)}px`;
+      el.style.height = `${Math.max(minHeight, el.scrollHeight)}px`;
     }
   }, []);
+
+  // Auto-resize intro textarea
+  const autoResizeIntro = useCallback(() => {
+    autoResizeEl(introTextareaRef.current, 80);
+  }, [autoResizeEl]);
 
   const readInputValue = useCallback((raw: any, fallback: string): string => {
     const el = raw?._node ?? raw;
@@ -948,9 +953,13 @@ function CarreraContent() {
                     key={`event-desc-${idx}-${(ev.description || "").length}-${(ev.description || "").slice(0, 16)}`}
                     ref={(el) => {
                       eventTextInputRefs.current[idx] = el;
+                      requestAnimationFrame(() => autoResizeEl(el, 40));
                     }}
-                    style={[shared.input, { fontSize: 13 }]}
+                    style={[shared.input, { fontSize: 13, overflow: "hidden" } as any]}
                     defaultValue={ev.description}
+                    onChangeText={() => {
+                      requestAnimationFrame(() => autoResizeEl(eventTextInputRefs.current[idx], 40));
+                    }}
                     onBlur={() => {
                       const value = readInputValue(eventTextInputRefs.current[idx], ev.description || "");
                       if (value !== (ev.description || "")) {
@@ -960,6 +969,7 @@ function CarreraContent() {
                     placeholder="Descripción IA..."
                     placeholderTextColor={colors.textDim}
                     multiline
+                    scrollEnabled={false}
                   />
 
                   {/* Action buttons */}
