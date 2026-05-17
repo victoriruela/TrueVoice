@@ -444,7 +444,7 @@ func ListLoRAs(projectRoot string) ([]map[string]interface{}, error) {
 		return nil, err
 	}
 	
-	var loras []map[string]interface{}
+	loras := []map[string]interface{}{}
 	
 	for _, entry := range entries {
 		if !entry.IsDir() {

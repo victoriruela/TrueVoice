@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Component } from "react";
 import { StatusBar } from "expo-status-bar";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import GenerateScreen from "./app/generar";
@@ -11,6 +11,36 @@ import EntrenarScreen from "./app/entrenar";
 import { cleanupTemp } from "./src/api";
 import { useConfigStore } from "./src/stores/useConfigStore";
 import { colors } from "./src/theme";
+
+class ErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { error: string | null; stack: string | null; componentStack: string | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null, stack: null, componentStack: null };
+  }
+  static getDerivedStateFromError(e: Error) {
+    return { error: e?.message || String(e), stack: e?.stack || null };
+  }
+  componentDidCatch(_e: Error, info: { componentStack: string }) {
+    this.setState({ componentStack: info?.componentStack || null });
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={{ flex: 1, backgroundColor: "#0f0f23", padding: 24 }}>
+          <Text style={{ color: "#ef5350", fontSize: 16, fontWeight: "700", marginBottom: 8 }}>⚠ Error de renderizado</Text>
+          <Text style={{ color: "#e0e0e0", fontSize: 12, fontFamily: "monospace", marginBottom: 8 }}>{this.state.error}</Text>
+          {this.state.componentStack && (
+            <Text style={{ color: "#aaa", fontSize: 10, fontFamily: "monospace" }}>{this.state.componentStack.slice(0, 600)}</Text>
+          )}
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type TabKey = "generate" | "race" | "context" | "outputs" | "voices" | "settings" | "train";
 
@@ -153,7 +183,9 @@ export default function App() {
       </ScrollView>
 
       <View style={{ flex: 1 }}>
-        <AllScreens tab={tab} />
+        <ErrorBoundary>
+          <AllScreens tab={tab} />
+        </ErrorBoundary>
       </View>
     </SafeAreaView>
   );

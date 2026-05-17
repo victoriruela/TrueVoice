@@ -22,6 +22,10 @@ truevoice-go/internal/server/contexts/contexts.json
 # Runtime data directories (user content, sessions)
 voices/
 race_sessions/
+training_data/
+loras/
+temp_outputs/
+api_outputs/
 
 # Compiled binaries
 truevoice-go/*.exe

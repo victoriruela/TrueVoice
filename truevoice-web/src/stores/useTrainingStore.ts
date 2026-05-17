@@ -155,7 +155,7 @@ export const useTrainingStore = create<TrainingStore>((set, get) => ({
   fetchJobs: async () => {
     try {
       const response = await api.get("/training/jobs");
-      set({ jobs: response.data });
+      set({ jobs: Array.isArray(response.data) ? response.data : [] });
     } catch (error) {
       console.error("Fetch jobs failed:", error);
     }
@@ -223,7 +223,7 @@ export const useTrainingStore = create<TrainingStore>((set, get) => ({
   fetchLoRAs: async () => {
     try {
       const response = await api.get("/training/loras");
-      set({ loras: response.data });
+      set({ loras: Array.isArray(response.data) ? response.data : [] });
     } catch (error) {
       console.error("Fetch LoRAs failed:", error);
     }
