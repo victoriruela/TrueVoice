@@ -75,7 +75,10 @@ func (s *Server) buildRouter() chi.Router {
 
 	// Models
 	r.Get("/models", s.listModels)
+	r.Get("/models/check", s.checkModelStatus)
 	r.Post("/models", s.addCustomModel)
+	r.Post("/models/download", s.startModelDownload)
+	r.Get("/models/download-progress", s.modelDownloadProgress)
 	r.Delete("/models/{id}", s.deleteCustomModel)
 
 	// Narrators

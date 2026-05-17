@@ -4,7 +4,7 @@ import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
 import { useGenerationStore, GenerationTask } from "../src/stores/useGenerationStore";
 import { useVoiceStore } from "../src/stores/useVoiceStore";
-import { getAudioUrl, listOutputs, deleteOutputs, GenerateRequest } from "../src/api";
+import { getAudioUrl, listOutputs, deleteOutputs, GenerateRequest, type NarratorConfig } from "../src/api";
 import { useRaceStore } from "../src/stores/useRaceStore";
 
 let generateScrollMemory = 0;
@@ -24,6 +24,104 @@ function AudioPlayer({ audioId, directory }: { audioId: string; directory?: stri
     <View style={{ marginVertical: 8 }}>
       {/* @ts-ignore - HTML audio element for web */}
       <audio controls src={src} style={{ width: "100%" }} />
+    </View>
+  );
+}
+
+/* ── Tag insertion bar ─────────────────────────────────────────────── */
+function TagBar({ narrators }: { narrators: Pick<NarratorConfig, "key" | "name">[] }) {
+  const lastElRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastPosRef = useRef({ start: 0, end: 0 });
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLTextAreaElement;
+      if (el && el.tagName === "TEXTAREA") {
+        lastElRef.current = el;
+        lastPosRef.current = { start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 };
+      }
+    };
+    const onSelChange = () => {
+      const el = lastElRef.current;
+      if (el && document.activeElement === el) {
+        lastPosRef.current = { start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 };
+      }
+    };
+    document.addEventListener("focus", onFocus, true);
+    document.addEventListener("selectionchange", onSelChange);
+    document.addEventListener("mouseup", onSelChange);
+    document.addEventListener("keyup", onSelChange);
+    return () => {
+      document.removeEventListener("focus", onFocus, true);
+      document.removeEventListener("selectionchange", onSelChange);
+      document.removeEventListener("mouseup", onSelChange);
+      document.removeEventListener("keyup", onSelChange);
+    };
+  }, []);
+
+  const insertTag = useCallback((tag: string) => {
+    const el = lastElRef.current;
+    if (!el) return;
+    const { start, end } = lastPosRef.current;
+    const before = el.value.substring(0, start);
+    const after = el.value.substring(end);
+    const newValue = before + tag + after;
+    const proto = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
+    if (proto?.set) {
+      proto.set.call(el, newValue);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    } else {
+      el.value = newValue;
+    }
+    el.focus();
+    const newPos = start + tag.length;
+    el.setSelectionRange(newPos, newPos);
+  }, []);
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        backgroundColor: colors.surfaceLight,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        gap: 4,
+        minHeight: 36,
+      }}
+    >
+      <Pressable
+        onPress={() => insertTag("[pause]")}
+        style={{
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          backgroundColor: colors.surface,
+          borderRadius: 4,
+          borderWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
+        <Text style={{ color: colors.textDim, fontSize: 12 }}>⏸ pause</Text>
+      </Pressable>
+      {narrators.map((n) => (
+        <Pressable
+          key={n.key}
+          onPress={() => insertTag(`[${n.key}]: `)}
+          style={{
+            paddingHorizontal: 10,
+            paddingVertical: 4,
+            backgroundColor: colors.surface,
+            borderRadius: 4,
+            borderWidth: 1,
+            borderColor: colors.accent,
+          }}
+        >
+          <Text style={{ color: colors.accent, fontSize: 12 }}>👤 {n.name}</Text>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -354,7 +452,9 @@ export default function GenerateScreen() {
   }, []);
 
   return (
-    <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
+    <View style={{ flex: 1 }}>
+      <TagBar narrators={config.narrators || []} />
+      <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
       <Text style={shared.title}>🗣️ Generar Audio</Text>
 
       {tasks.map((task) => (
@@ -394,5 +494,6 @@ export default function GenerateScreen() {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </View>
   );
 }

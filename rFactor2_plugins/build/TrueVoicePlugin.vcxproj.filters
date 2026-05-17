@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\src\TrueVoicePlugin.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\src\EventDetector.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\src\JsonWriter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\src\TrueVoicePlugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\src\EventDetector.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\src\JsonWriter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\include\InternalsPlugin.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\include\PluginObjects.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{EA33C4E0-D69C-3F92-9CED-EFCE6C035A65}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{FFAF396C-E0BC-3EFF-B3C0-685B729CB70E}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,20 +1,157 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"truevoice/internal/config"
 )
+
+// ── Model download jobs ────────────────────────────────────────────
+
+type modelDownloadJob struct {
+	status  string // "downloading", "done", "error"
+	message string
+}
+
+var globalModelDownloadJobs sync.Map // map[string]*modelDownloadJob
+
+func serverHFHome() string {
+	if configured := strings.TrimSpace(os.Getenv("TRUEVOICE_RUNTIME_DIR")); configured != "" {
+		return filepath.Join(filepath.Clean(configured), "models", "huggingface")
+	}
+	if localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); localAppData != "" {
+		return filepath.Join(localAppData, "TrueVoice", "runtime", "models", "huggingface")
+	}
+	if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+		return filepath.Join(appData, "TrueVoice", "runtime", "models", "huggingface")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "huggingface")
+}
+
+func isModelDownloaded(modelID string) bool {
+	// Local path: check if directory exists
+	if filepath.IsAbs(modelID) {
+		info, err := os.Stat(modelID)
+		return err == nil && info.IsDir()
+	}
+	// HF cache: models--org--name/snapshots/ must exist and be non-empty
+	parts := strings.SplitN(modelID, "/", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	hfHome := serverHFHome()
+	cachePath := filepath.Join(hfHome, "hub",
+		fmt.Sprintf("models--%s--%s", parts[0], parts[1]),
+		"snapshots",
+	)
+	entries, err := os.ReadDir(cachePath)
+	return err == nil && len(entries) > 0
+}
+
+func (s *Server) checkModelStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if strings.TrimSpace(id) == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"downloaded": isModelDownloaded(id)})
+}
+
+func (s *Server) startModelDownload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.ID) == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	modelID := strings.TrimSpace(req.ID)
+
+	// If already in progress, return status immediately
+	if existing, ok := globalModelDownloadJobs.Load(modelID); ok {
+		job := existing.(*modelDownloadJob)
+		if job.status == "downloading" {
+			writeJSON(w, http.StatusOK, map[string]string{
+				"download_id": modelID,
+				"status":      "already_downloading",
+			})
+			return
+		}
+	}
+
+	pythonPath := s.gen.GetPythonPath()
+	if pythonPath == "" {
+		writeError(w, http.StatusServiceUnavailable,
+			"Python runtime not ready. Run bootstrap first from Setup.")
+		return
+	}
+
+	job := &modelDownloadJob{status: "downloading"}
+	globalModelDownloadJobs.Store(modelID, job)
+
+	go func() {
+		script := fmt.Sprintf(
+			"from huggingface_hub import snapshot_download; snapshot_download(%q)",
+			modelID,
+		)
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Hour)
+		defer cancel()
+
+		hfHome := serverHFHome()
+		cmd := exec.CommandContext(ctx, pythonPath, "-c", script)
+		cmd.Env = append(os.Environ(), "HF_HOME="+hfHome)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			msg := strings.TrimSpace(string(output))
+			if msg == "" {
+				msg = err.Error()
+			}
+			if len(msg) > 2000 {
+				msg = msg[len(msg)-2000:]
+			}
+			job.status = "error"
+			job.message = msg
+		} else {
+			job.status = "done"
+		}
+		globalModelDownloadJobs.Store(modelID, job)
+	}()
+
+	writeJSON(w, http.StatusOK, map[string]string{"download_id": modelID})
+}
+
+func (s *Server) modelDownloadProgress(w http.ResponseWriter, r *http.Request) {
+	rawID := r.URL.Query().Get("id")
+	id, err := url.QueryUnescape(rawID)
+	if err != nil || strings.TrimSpace(id) == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	if entry, ok := globalModelDownloadJobs.Load(id); ok {
+		job := entry.(*modelDownloadJob)
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  job.status,
+			"message": job.message,
+		})
+	} else {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "not_found"})
+	}
+}
 
 func ollamaURLCandidates(configured string) []string {
 	configured = strings.TrimRight(strings.TrimSpace(configured), "/")

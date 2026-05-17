@@ -38,6 +38,14 @@ export interface ModelInfo {
   size: string;
 }
 export const listModels = () => api.get<ModelInfo[]>("/models");
+export const checkModelStatus = (id: string) =>
+  api.get<{ downloaded: boolean }>("/models/check", { params: { id } });
+export const startModelDownload = (id: string) =>
+  api.post<{ download_id: string; status?: string }>("/models/download", { id });
+export const getModelDownloadProgress = (id: string) =>
+  api.get<{ status: string; message: string }>("/models/download-progress", {
+    params: { id: encodeURIComponent(id) },
+  });
 
 /* ── Custom Models ──────────────────────────────────────────────────── */
 export interface CustomModel {

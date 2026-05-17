@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -10,7 +10,11 @@ import {
 } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
-import { ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus, browseDrives, browseFolders, listModels, type ModelInfo } from "../src/api";
+import {
+  ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus,
+  browseDrives, browseFolders, listModels, type ModelInfo,
+  checkModelStatus, startModelDownload, getModelDownloadProgress,
+} from "../src/api";
 
 let settingsScrollMemory = 0;
 
@@ -215,6 +219,21 @@ export default function SettingsScreen() {
   const [newModelName, setNewModelName] = useState("");
   const scrollRef = React.useRef<any>(null);
 
+  // Model download modal state
+  const [downloadModal, setDownloadModal] = useState<{
+    model: ModelInfo;
+    status: "confirm" | "downloading" | "done" | "error";
+    error?: string;
+  } | null>(null);
+  const downloadPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup poll on unmount
+  useEffect(() => {
+    return () => {
+      if (downloadPollRef.current) clearInterval(downloadPollRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
@@ -260,6 +279,61 @@ export default function SettingsScreen() {
     }
   }, [refreshSetupStatus]);
 
+  const handleModelSelect = useCallback(async (m: ModelInfo) => {
+    try {
+      const { data } = await checkModelStatus(m.id);
+      if (data.downloaded) {
+        patch({ selected_model: m.id, selected_model_name: m.name });
+      } else {
+        setDownloadModal({ model: m, status: "confirm" });
+      }
+    } catch {
+      // If we can't check, just select it
+      patch({ selected_model: m.id, selected_model_name: m.name });
+    }
+  }, [patch]);
+
+  const handleStartDownload = useCallback(async () => {
+    if (!downloadModal) return;
+    const m = downloadModal.model;
+    setDownloadModal({ model: m, status: "downloading" });
+    try {
+      await startModelDownload(m.id);
+      downloadPollRef.current = setInterval(async () => {
+        try {
+          const { data } = await getModelDownloadProgress(m.id);
+          if (data.status === "done") {
+            if (downloadPollRef.current) {
+              clearInterval(downloadPollRef.current);
+              downloadPollRef.current = null;
+            }
+            patch({ selected_model: m.id, selected_model_name: m.name });
+            setDownloadModal({ model: m, status: "done" });
+            setTimeout(() => setDownloadModal(null), 2500);
+          } else if (data.status === "error") {
+            if (downloadPollRef.current) {
+              clearInterval(downloadPollRef.current);
+              downloadPollRef.current = null;
+            }
+            setDownloadModal({
+              model: m,
+              status: "error",
+              error: data.message || "Error desconocido",
+            });
+          }
+        } catch {
+          /* keep polling */
+        }
+      }, 5000);
+    } catch (e: any) {
+      setDownloadModal({
+        model: m,
+        status: "error",
+        error: e?.message || "Error al iniciar descarga",
+      });
+    }
+  }, [downloadModal, patch]);
+
   useEffect(() => {
     refreshSetupStatus();
   }, []);
@@ -284,6 +358,7 @@ export default function SettingsScreen() {
   }
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
       <Text style={shared.title}>⚙️ Configuración</Text>
 
@@ -293,9 +368,7 @@ export default function SettingsScreen() {
           {modelOptions.map((m) => (
             <Pressable
               key={m.id}
-              onPress={() =>
-                patch({ selected_model: m.id, selected_model_name: m.name })
-              }
+              onPress={() => handleModelSelect(m)}
               style={[
                 shared.buttonSecondary,
                 config.selected_model === m.id && { borderColor: colors.primary },
@@ -667,5 +740,101 @@ export default function SettingsScreen() {
         title="Seleccionar carpeta de salida de audios"
       />
     </ScrollView>
+
+    {/* ── Model download modal ─────────────────────────────────── */}
+    {downloadModal && (
+      <Modal visible transparent animationType="fade">
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 8,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: colors.border,
+              maxWidth: 480,
+              width: "100%",
+            }}
+          >
+            {downloadModal.status === "confirm" && (
+              <>
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: 8 }}>
+                  Modelo no descargado
+                </Text>
+                <Text style={{ color: colors.textDim, marginBottom: 16 }}>
+                  {downloadModal.model.name}
+                  {downloadModal.model.size ? ` (${downloadModal.model.size})` : ""} no está en la caché local.{"\n\n"}
+                  ¿Deseas descargarlo ahora? Puede tardar varios minutos.
+                </Text>
+                <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
+                  <Pressable style={shared.buttonSecondary} onPress={() => setDownloadModal(null)}>
+                    <Text style={[shared.buttonText, { color: colors.text }]}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable style={shared.button} onPress={handleStartDownload}>
+                    <Text style={shared.buttonText}>Descargar</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+            {downloadModal.status === "downloading" && (
+              <>
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: 8 }}>
+                  Descargando modelo
+                </Text>
+                <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />
+                <Text style={{ color: colors.textDim, marginBottom: 4 }}>
+                  Descargando {downloadModal.model.name}...
+                </Text>
+                <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 12 }}>
+                  Esto puede tardar varios minutos dependiendo de tu conexión.
+                </Text>
+                <Pressable
+                  style={[shared.buttonSecondary, { alignSelf: "flex-start" }]}
+                  onPress={() => {
+                    if (downloadPollRef.current) {
+                      clearInterval(downloadPollRef.current);
+                      downloadPollRef.current = null;
+                    }
+                    setDownloadModal(null);
+                  }}
+                >
+                  <Text style={[shared.buttonText, { color: colors.text }]}>Cancelar</Text>
+                </Pressable>
+              </>
+            )}
+            {downloadModal.status === "done" && (
+              <>
+                <Text style={{ color: colors.success, fontSize: 16, fontWeight: "700" }}>
+                  ✓ Descarga completada
+                </Text>
+                <Text style={{ color: colors.textDim, marginTop: 8 }}>
+                  El modelo ha sido descargado y seleccionado.
+                </Text>
+              </>
+            )}
+            {downloadModal.status === "error" && (
+              <>
+                <Text style={{ color: colors.error, fontSize: 16, fontWeight: "700", marginBottom: 8 }}>
+                  Error en la descarga
+                </Text>
+                <Text style={{ color: colors.textDim, marginBottom: 16 }}>{downloadModal.error}</Text>
+                <Pressable style={shared.button} onPress={() => setDownloadModal(null)}>
+                  <Text style={shared.buttonText}>Cerrar</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+    )}
+    </View>
   );
 }

@@ -63,6 +63,13 @@ func NewManager(cfg *config.Store) *Manager {
 	}
 }
 
+// GetPythonPath returns the path to the runtime Python executable, or empty if not yet ready.
+func (m *Manager) GetPythonPath() string {
+	m.setup.mu.RLock()
+	defer m.setup.mu.RUnlock()
+	return m.setup.python
+}
+
 func (m *Manager) CancelAll() {
 	m.procs.Range(func(key, val any) bool {
 		if ap, ok := val.(*activeProcess); ok {

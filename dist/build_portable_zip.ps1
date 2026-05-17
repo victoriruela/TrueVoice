@@ -22,7 +22,7 @@ function Resolve-RuntimeSource {
     }
 
     $ready = Join-Path $candidate '.ready'
-    $modelDir = Join-Path $candidate 'models\huggingface\transformers\models--microsoft--VibeVoice-1.5b'
+    $modelDir = Join-Path $candidate 'models\huggingface\models--microsoft--VibeVoice-1.5b'
     if ((Test-Path $ready) -and (Test-Path $modelDir)) {
       return $candidate
     }
