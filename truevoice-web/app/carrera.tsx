@@ -1297,9 +1297,9 @@ function CarreraContent() {
             style={[
               shared.button,
               {
-                backgroundColor: colors.success,
+                backgroundColor: "#9575cd",
                 borderWidth: 1,
-                borderColor: colors.success,
+                borderColor: "#9575cd",
                 minWidth: 160,
               },
             ]}
