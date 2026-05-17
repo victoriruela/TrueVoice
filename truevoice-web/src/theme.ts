@@ -12,6 +12,7 @@ export const colors = {
   border: "#2a2a4a",
   error: "#ef5350",
   success: "#66bb6a",
+  danger: "#ef5350", // Alias for error
 };
 
 export const shared = StyleSheet.create({
@@ -19,6 +20,43 @@ export const shared = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
     padding: 16,
+  },
+  container: {
+    width: "100%" as any,
+    maxWidth: 1200,
+    marginHorizontal: "auto" as any,
+  },
+  section: {
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  h1: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: colors.text,
+    marginBottom: 8,
+  },
+  h2: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: colors.text,
+    marginBottom: 8,
+  },
+  p: {
+    fontSize: 14,
+    color: colors.textDim,
+    marginBottom: 12,
+    lineHeight: 20,
+  },
+  labelText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: colors.text,
+    marginBottom: 4,
   },
   card: {
     backgroundColor: colors.surface,

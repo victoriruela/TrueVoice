@@ -270,7 +270,12 @@ def main():
 
     full_script = '\n'.join(scripts).replace("’", "'")
     
-    processor = VibeVoiceProcessor.from_pretrained(args.model_path)
+    print(f"Loading processor from: {args.model_path}", flush=True)
+    try:
+        processor = VibeVoiceProcessor.from_pretrained(args.model_path)
+    except Exception as e:
+        print(f"ERROR loading processor from '{args.model_path}': {e}", flush=True)
+        sys.exit(1)
     
     # float32 usa instrucciones AVX2/MKL nativas en CPU; en CPU forzamos eager
     # para no depender de SDPA (torch>=2.1.1) en runtimes empaquetados antiguos.
@@ -309,10 +314,28 @@ def main():
     if quantization_config is not None:
         from_pretrained_kwargs["quantization_config"] = quantization_config
 
-    model = VibeVoiceForConditionalGenerationInference.from_pretrained(
-        args.model_path,
-        **from_pretrained_kwargs,
-    )
+    print(f"Loading model from: {args.model_path} (device={args.device}, dtype={load_dtype})", flush=True)
+    try:
+        model = VibeVoiceForConditionalGenerationInference.from_pretrained(
+            args.model_path,
+            **from_pretrained_kwargs,
+        )
+    except OSError as e:
+        msg = str(e)
+        if "does not appear to have a file named" in msg or "is not a local folder" in msg:
+            print(f"ERROR: No se pudo cargar el modelo '{args.model_path}'. "
+                  f"Verifica que el modelo esté completamente descargado. "
+                  f"Detalle: {msg}", flush=True)
+        elif "CUDA" in msg or "cuda" in msg:
+            print(f"ERROR: El modelo '{args.model_path}' requiere GPU CUDA. Detalle: {msg}", flush=True)
+        else:
+            print(f"ERROR cargando modelo '{args.model_path}': {msg}", flush=True)
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR inesperado cargando modelo '{args.model_path}': {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
     
     if args.checkpoint_path:
         load_lora_assets(model, args.checkpoint_path)
@@ -330,9 +353,30 @@ def main():
 
     def _generate_for_text(text_block: str):
         """Run a single inference for a given script text and return numpy audio array."""
+        # Build voice samples specific to the speakers actually appearing in this chunk.
+        # Without this, when chunking splits "Speaker 2: text" into its own chunk,
+        # the processor sees Speaker 2 as the FIRST speaker and maps it to voice_samples[0]
+        # (wrong voice) instead of voice_samples[1] (correct voice).
+        block_speaker_nums: list[str] = []
+        seen_in_block: set[str] = set()
+        for m in _SPEAKER_FIND_RE.finditer(text_block):
+            sn = m.group(1)
+            if sn not in seen_in_block:
+                block_speaker_nums.append(sn)
+                seen_in_block.add(sn)
+
+        if block_speaker_nums:
+            chunk_voice_samples = []
+            for sn in block_speaker_nums:
+                name = speaker_name_mapping.get(sn, f"Speaker {sn}")
+                path = voice_mapper.get_voice_path(name)
+                chunk_voice_samples.append(path)
+        else:
+            chunk_voice_samples = voice_samples[:1] if voice_samples else []
+
         inputs = processor(
             text=[text_block],
-            voice_samples=[voice_samples],
+            voice_samples=[chunk_voice_samples],
             padding=True,
             return_tensors="pt",
         ).to(args.device)

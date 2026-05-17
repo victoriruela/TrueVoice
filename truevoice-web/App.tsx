@@ -7,15 +7,17 @@ import ContextoScreen from "./app/contexto";
 import OutputsScreen from "./app/outputs";
 import VoicesScreen from "./app/voices";
 import SettingsScreen from "./app/settings";
+import EntrenarScreen from "./app/entrenar";
 import { cleanupTemp } from "./src/api";
 import { useConfigStore } from "./src/stores/useConfigStore";
 import { colors } from "./src/theme";
 
-type TabKey = "generate" | "race" | "context" | "outputs" | "voices" | "settings";
+type TabKey = "generate" | "race" | "context" | "outputs" | "voices" | "settings" | "train";
 
 const TABS: Array<{ key: TabKey; title: string }> = [
   { key: "race", title: "Carrera" },
   { key: "generate", title: "Generar" },
+  { key: "train", title: "Entrenar" },
   { key: "context", title: "Contexto" },
   { key: "outputs", title: "Audios" },
   { key: "voices", title: "Voces" },
@@ -30,6 +32,9 @@ function AllScreens({ tab }: { tab: TabKey }) {
       </View>
       <View style={{ flex: 1, display: tab === "generate" ? "flex" : "none" }}>
         <GenerateScreen />
+      </View>
+      <View style={{ flex: 1, display: tab === "train" ? "flex" : "none" }}>
+        <EntrenarScreen />
       </View>
       <View style={{ flex: 1, display: tab === "context" ? "flex" : "none" }}>
         <ContextoScreen />

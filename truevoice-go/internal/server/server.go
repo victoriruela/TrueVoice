@@ -12,6 +12,7 @@ import (
 	"truevoice/internal/contexts"
 	"truevoice/internal/generation"
 	"truevoice/internal/race"
+	"truevoice/internal/training"
 	"truevoice/internal/voices"
 )
 
@@ -22,16 +23,19 @@ type Server struct {
 	voices   *voices.Manager
 	race     *race.Manager
 	contexts *contexts.Manager
+	training *training.Manager
 	router   chi.Router
 }
 
 func New(cfg *config.Store) *Server {
+	genMgr := generation.NewManager(cfg)
 	s := &Server{
 		cfg:      cfg,
-		gen:      generation.NewManager(cfg),
+		gen:      genMgr,
 		voices:   voices.NewManager(cfg),
 		race:     race.NewManager(cfg),
 		contexts: contexts.NewManager(cfg),
+		training: training.NewManager(genMgr),
 	}
 	s.router = s.buildRouter()
 	return s
@@ -127,6 +131,9 @@ func (s *Server) buildRouter() chi.Router {
 	r.Delete("/race/sessions/{name}", s.race.DeleteSessionHandler)
 	r.Post("/race/csv", s.race.CSVExportHandler)
 	r.Get("/race/sessions/{name}/csv", s.race.CSVHandler)
+
+	// Training
+	s.training.RegisterHandlers(r)
 
 	// Setup / sidecar status
 	r.Get("/setup/status", s.gen.SetupStatusHandler)

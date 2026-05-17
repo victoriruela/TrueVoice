@@ -392,6 +392,9 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.CommandContext(ctx, pythonExe, args...)
 	cmd.Dir = wd
 
+	// Debug logging
+	fmt.Printf("[generation] Command: %s %s\n", pythonExe, strings.Join(args, " "))
+
 	pyPath := wd
 	if existing := os.Getenv("PYTHONPATH"); existing != "" {
 		pyPath = wd + string(os.PathListSeparator) + existing
@@ -426,6 +429,8 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 			errCh <- s
 		}()
 
+		stdoutLinesCh := make(chan []string, 1)
+
 		if err := cmd.Start(); err != nil {
 			m.setProgressError(audioID, "error", -1, err.Error())
 			return
@@ -433,8 +438,11 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 
 		m.setProgressError(audioID, "running", 0, "")
 
-		// Parse progress from stdout
-		go m.parseProgress(audioID, stdout)
+		// Parse progress from stdout and capture last lines
+		go func() {
+			lines := m.parseProgress(audioID, stdout)
+			stdoutLinesCh <- lines
+		}()
 
 		err := cmd.Wait()
 		stderrText := ""
@@ -442,13 +450,27 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 		case stderrText = <-errCh:
 		case <-time.After(2 * time.Second):
 		}
+		stdoutLines := []string{}
+		select {
+		case stdoutLines = <-stdoutLinesCh:
+		case <-time.After(500 * time.Millisecond):
+		}
+
 		if err != nil {
 			if stderrText == "" {
 				stderrText = err.Error()
 			}
-			// Log full error to console for debugging
-			fmt.Printf("[generation] ERROR for %s: %v\nSTDERR: %s\n", audioID, err, stderrText)
-			m.setProgressError(audioID, "error", -1, stderrText)
+			// Log full error to console for debugging with stdout context
+			fmt.Printf("[generation] ERROR for %s: %v\nSTDERR: %s\nLast stdout lines:\n", audioID, err, stderrText)
+			for _, line := range stdoutLines {
+				fmt.Printf("  %s\n", line)
+			}
+			// Include stdout context in error message
+			fullErr := stderrText
+			if len(stdoutLines) > 0 {
+				fullErr += "\nLast output: " + strings.Join(stdoutLines, " | ")
+			}
+			m.setProgressError(audioID, "error", -1, fullErr)
 		} else {
 			m.setProgressError(audioID, "done", -1, "")
 		}
@@ -463,10 +485,17 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (m *Manager) parseProgress(audioID string, r io.Reader) {
+func (m *Manager) parseProgress(audioID string, r io.Reader) []string {
 	scanner := bufio.NewScanner(r)
+	lastLines := make([]string, 0, 20)
 	for scanner.Scan() {
 		line := scanner.Text()
+		// Keep last 20 lines for error reporting
+		lastLines = append(lastLines, line)
+		if len(lastLines) > 20 {
+			lastLines = lastLines[1:]
+		}
+
 		if match := reProgressStart.FindStringSubmatch(line); len(match) == 2 {
 			total, _ := strconv.Atoi(match[1])
 			if entry, ok := m.progress.Load(audioID); ok {
@@ -485,6 +514,7 @@ func (m *Manager) parseProgress(audioID string, r io.Reader) {
 			}
 		}
 	}
+	return lastLines
 }
 
 func (m *Manager) setProgress(audioID, status string, current int) {

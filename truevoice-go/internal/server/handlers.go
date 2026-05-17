@@ -184,9 +184,7 @@ func ollamaURLCandidates(configured string) []string {
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	models := []map[string]string{
 		{"id": "microsoft/VibeVoice-1.5b", "name": "VibeVoice 1.5B (recomendado)", "size": "~6 GB"},
-		{"id": "aoi-ot/VibeVoice-Large", "name": "VibeVoice Large (máx. calidad)", "size": "~18.7 GB"},
-		{"id": "FabioSarracino/VibeVoice-Large-Q8", "name": "VibeVoice Large Q8 (equilibrado)", "size": "~11.6 GB"},
-		{"id": "DevParker/VibeVoice7b-low-vram", "name": "VibeVoice Large Q4 (VRAM reducida)", "size": "~6.6 GB"},
+		{"id": "aoi-ot/VibeVoice-Large", "name": "VibeVoice Large (máx. calidad, ~19 GB RAM)", "size": "~18.7 GB"},
 	}
 
 	for _, cm := range s.cfg.CustomModels() {
