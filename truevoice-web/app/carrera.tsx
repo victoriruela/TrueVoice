@@ -181,9 +181,12 @@ function TagBar({ narrators }: { narrators: Pick<NarratorConfig, "key" | "name">
     } else {
       el.value = newValue;
     }
-    el.focus();
     const newPos = start + tag.length;
-    el.setSelectionRange(newPos, newPos);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(newPos, newPos);
+      lastPosRef.current = { start: newPos, end: newPos };
+    });
   }, []);
 
   return (
@@ -1078,6 +1081,18 @@ function CarreraContent() {
                     </Text>
                     <Text style={{ color: colors.textDim, fontSize: 12 }}>
                       {evs.length} evento{evs.length !== 1 ? "s" : ""}
+                      {(() => {
+                        const counts = evs.reduce((acc, { ev }) => {
+                          const type = EVENT_TYPE_LABELS[ev.event_type] || `Tipo ${ev.event_type}`;
+                          acc[type] = (acc[type] || 0) + 1;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        const summary = Object.entries(counts)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([type, count]) => `${count}× ${type}`)
+                          .join(", ");
+                        return summary ? ` · ${summary}` : "";
+                      })()}
                     </Text>
                   </Pressable>
 
@@ -1270,7 +1285,7 @@ function CarreraContent() {
 
       {/* ── Floating collapse/expand all button ─────────────────────── */}
       {store.events.length > 0 && (
-        <View style={{ position: "absolute", left: 16, bottom: 16 }}>
+        <View style={{ position: "absolute", left: 16, bottom: 16, zIndex: 1000 }}>
           <Pressable
             style={[
               shared.button,

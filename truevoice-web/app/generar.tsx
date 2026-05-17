@@ -74,9 +74,12 @@ function TagBar({ narrators }: { narrators: Pick<NarratorConfig, "key" | "name">
     } else {
       el.value = newValue;
     }
-    el.focus();
     const newPos = start + tag.length;
-    el.setSelectionRange(newPos, newPos);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(newPos, newPos);
+      lastPosRef.current = { start: newPos, end: newPos };
+    });
   }, []);
 
   return (
