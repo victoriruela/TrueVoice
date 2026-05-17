@@ -82,8 +82,11 @@ Write-Host '[6/7] Copiando archivos de la app...'
 Copy-Item (Join-Path $root 'vibevoice_app.py')    $outDir -Force
 Copy-Item (Join-Path $root 'inference_wrapper.py') $outDir -Force
 Copy-Item (Join-Path $root 'patches.py')           $outDir -Force
-Copy-Item (Join-Path $root 'frontend_config.json') $outDir -Force
 Copy-Item (Join-Path $root 'requirements.txt')     $outDir -Force
+# frontend_config.json puede estar en la raíz o en truevoice-go/
+$cfgSrc = Join-Path $root 'frontend_config.json'
+if (-not (Test-Path $cfgSrc)) { $cfgSrc = Join-Path $root 'truevoice-go\frontend_config.json' }
+if (Test-Path $cfgSrc) { Copy-Item $cfgSrc $outDir -Force }
 
 # Paquete VibeVoice
 if (Test-Path (Join-Path $root 'VibeVoice')) {
