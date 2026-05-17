@@ -51,6 +51,7 @@ export default function EntrenarScreen() {
   const [speakerNumber, setSpeakerNumber] = useState(1);
   const splitPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const [showSegments, setShowSegments] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -193,17 +194,23 @@ export default function EntrenarScreen() {
   }, [splitPolling, splitJobId]);
 
   const handleAddSegmentsToDataset = useCallback(async () => {
-    if (!splitStatus?.segments || splitStatus.segments.length === 0) return;
-    // Upload all segment WAV + TXT files from the output dir to the training dataset
-    // We re-use the /training/upload endpoint by fetching each file via the server
-    // Actually, segments are already on the server in output_dir; we can validate them directly
-    // by calling /training/validate with the session_id and pointing it to the segments dir.
-    // For now, we alert the user to proceed to the Dataset section.
-    Alert.alert(
-      "Segmentos listos",
-      `${splitStatus.done} segmentos generados. Los archivos están en la carpeta de training data. Puedes cargarlos directamente en la sección Dataset.`,
-    );
-  }, [splitStatus]);
+    // Si ya hay segmentos cargados, solo toggle
+    if (splitStatus?.segments && splitStatus.segments.length > 0) {
+      setShowSegments((v) => !v);
+      return;
+    }
+    // Si no hay segmentos todavía, re-fetch el estado del job para obtenerlos
+    if (splitJobId) {
+      try {
+        const res = await fetch(`/training/split-progress/${splitJobId}`);
+        if (res.ok) {
+          const data: SplitJobStatus = await res.json();
+          setSplitStatus(data);
+        }
+      } catch { /* silent */ }
+    }
+    setShowSegments(true);
+  }, [splitStatus, splitJobId]);
 
   const validCount = validatedFiles.filter((f) => f.valid).length;
   const invalidCount = validatedFiles.length - validCount;
@@ -291,15 +298,34 @@ export default function EntrenarScreen() {
               )}
               {splitStatus.status === "done" && (
                 <>
-                  <Text style={{ color: colors.success, fontWeight: "600", marginBottom: 6 }}>
-                    ✅ {splitStatus.done} segmentos generados
-                  </Text>
-                  <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 8 }}>
-                    Los archivos están en la carpeta training_data. Cárgalos en la sección Dataset.
-                  </Text>
-                  <Pressable onPress={handleAddSegmentsToDataset} style={[shared.buttonSecondary, { alignSelf: "flex-start" }]}>
-                    <Text style={{ color: colors.primary }}>Ver detalles</Text>
-                  </Pressable>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                    <Text style={{ color: colors.success, fontWeight: "600" }}>
+                      ✅ {splitStatus.done} segmentos generados
+                    </Text>
+                    <Pressable onPress={handleAddSegmentsToDataset}>
+                      <Text style={{ color: colors.primary, fontSize: 13 }}>{showSegments ? "▲ Ocultar" : "▼ Ver segmentos"}</Text>
+                    </Pressable>
+                  </View>
+                  {showSegments && splitStatus.segments && splitStatus.segments.length > 0 && (
+                    <View style={{ marginTop: 8, maxHeight: 320, overflow: "scroll" as any }}>
+                      {splitStatus.segments.map((seg, i) => (
+                        <View key={i} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontSize: 12, fontFamily: "monospace" }}>{seg.audio}</Text>
+                            {seg.transcript
+                              ? <Text style={{ color: colors.success, fontSize: 11 }}>✓ transcripción</Text>
+                              : <Text style={{ color: colors.textDim, fontSize: 11 }}>sin transcripción</Text>
+                            }
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {showSegments && (!splitStatus.segments || splitStatus.segments.length === 0) && (
+                    <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 6 }}>
+                      Recargando lista de segmentos...
+                    </Text>
+                  )}
                 </>
               )}
               {splitStatus.status === "error" && (
@@ -607,6 +633,16 @@ export default function EntrenarScreen() {
                 <Text style={{ color: colors.danger, fontSize: 12, marginTop: 8 }}>
                   {currentJob.error}
                 </Text>
+              )}
+
+              {/* Show last log lines when failed */}
+              {currentJob.status === "failed" && currentJob.logs && currentJob.logs.length > 0 && (
+                <View style={{ marginTop: 8, backgroundColor: "#1a1a1a", borderRadius: 6, padding: 8, maxHeight: 200, overflow: "scroll" as any }}>
+                  <Text style={{ color: colors.textDim, fontSize: 10, marginBottom: 4 }}>Últimos logs:</Text>
+                  {(currentJob.logs as string[]).slice(-20).map((line: string, i: number) => (
+                    <Text key={i} style={{ color: colors.textDim, fontSize: 10, fontFamily: "monospace" }}>{line}</Text>
+                  ))}
+                </View>
               )}
             </View>
           </View>

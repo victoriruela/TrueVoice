@@ -17,6 +17,8 @@ export interface TrainingJob {
   start_time: string;
   end_time?: string;
   error?: string;
+  logs?: string[];
+  log_lines?: number;
 }
 
 export interface TrainingConfig {
@@ -186,11 +188,10 @@ export const useTrainingStore = create<TrainingStore>((set, get) => ({
 
     // Set up polling
     pollInterval = setInterval(async () => {
-      const { currentJob } = get();
-      
       await get().fetchJob(jobId);
-      
-      // Stop polling if job finished
+
+      // Check updated state AFTER fetch
+      const { currentJob } = get();
       if (currentJob && ["completed", "failed", "cancelled"].includes(currentJob.status)) {
         get().stopPolling();
         // Refresh LoRAs list if completed

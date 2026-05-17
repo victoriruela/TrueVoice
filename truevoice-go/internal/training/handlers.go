@@ -161,9 +161,9 @@ func (m *Manager) prepareHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prepare CSV
-	csvPath := filepath.Join(dataDir, "dataset.csv")
-	if err := PrepareDatasetCSV(validFiles, csvPath); err != nil {
+	// Prepare JSONL dataset file
+	csvPath := filepath.Join(dataDir, "dataset.jsonl")
+	if err := PrepareDatasetJSONL(validFiles, csvPath); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create CSV: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -265,6 +265,7 @@ func (m *Manager) getJobHandler(w http.ResponseWriter, r *http.Request) {
 		"end_time":   job.EndTime,
 		"error":      job.Error,
 		"log_lines":  len(job.Logs),
+		"logs":       job.Logs,
 	})
 }
 

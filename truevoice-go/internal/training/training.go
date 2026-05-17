@@ -199,23 +199,29 @@ func (m *Manager) runTraining(job *TrainingJob) {
 	}
 	
 	// Build command arguments
+	// Prepend patches.py import to fix torch 2.0.x / transformers 4.51+ compatibility
+	// (torch.compiler, load_state_dict assign=True)
+	patchBootstrap := "import sys, os; sys.path.insert(0, os.getcwd()); import patches; " +
+		"from vibevoice.finetune import train_vibevoice; train_vibevoice.main()"
+
+	// DatasetPath is a JSONL file (PrepareDatasetJSONL). Use --train_jsonl for local files.
+	jsonlPath := filepath.ToSlash(cfg.DatasetPath)
+
 	args := []string{
-		"-m", "vibevoice.finetune.train_vibevoice",
+		"-c", patchBootstrap,
 		"--model_name_or_path", cfg.ModelBase,
-		"--dataset_name", cfg.DatasetPath,
+		"--train_jsonl", jsonlPath,
 		"--text_column_name", "text",
 		"--audio_column_name", "audio",
-		"--voice_prompts_column_name", "audio",
 		"--output_dir", cfg.OutputDir,
 		"--per_device_train_batch_size", fmt.Sprintf("%d", cfg.BatchSize),
 		"--gradient_accumulation_steps", fmt.Sprintf("%d", cfg.GradientAccum),
 		"--learning_rate", fmt.Sprintf("%.2e", cfg.LearningRate),
 		"--num_train_epochs", fmt.Sprintf("%d", cfg.Epochs),
 		"--logging_steps", "10",
-		"--save_steps", "100",
-		"--eval_steps", "100",
+		"--save_steps", "500",
 		"--remove_unused_columns", "False",
-		"--bf16", "True",
+		"--bf16", "False", // CPU-safe default; GPU users can override
 		"--do_train",
 		"--gradient_clipping",
 		"--gradient_checkpointing", "False",
@@ -382,42 +388,46 @@ func ValidateDataset(dataDir string) ([]DatasetFile, error) {
 	return files, nil
 }
 
-// PrepareDatasetCSV creates a CSV file for HuggingFace datasets
+// PrepareDatasetCSV kept for backward compat — delegates to PrepareDatasetJSONL.
 func PrepareDatasetCSV(files []DatasetFile, outputPath string) error {
+	return PrepareDatasetJSONL(files, outputPath)
+}
+
+// PrepareDatasetJSONL creates a JSONL file for VibeVoice training (--train_jsonl format).
+// Each line: {"text": "Speaker 1: ...", "audio": "/abs/path/to/audio.wav"}
+func PrepareDatasetJSONL(files []DatasetFile, outputPath string) error {
 	f, err := os.Create(outputPath)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	
-	// Write CSV header
-	if _, err := f.WriteString("audio,text\n"); err != nil {
-		return err
-	}
-	
-	// Write rows
+
 	for _, file := range files {
 		if !file.Valid {
 			continue
 		}
-		
-		// Read transcript
+
 		content, err := os.ReadFile(file.TranscriptPath)
 		if err != nil {
 			continue
 		}
-		
 		text := strings.TrimSpace(string(content))
-		
-		// Escape quotes in text
-		text = strings.ReplaceAll(text, "\"", "\"\"")
-		
-		row := fmt.Sprintf("\"%s\",\"%s\"\n", file.AudioPath, text)
-		if _, err := f.WriteString(row); err != nil {
+
+		// Use forward slashes for Python compatibility on Windows
+		audioPath := filepath.ToSlash(file.AudioPath)
+
+		line, err := json.Marshal(map[string]string{
+			"text":  text,
+			"audio": audioPath,
+		})
+		if err != nil {
+			continue
+		}
+		if _, err := f.Write(append(line, '\n')); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
