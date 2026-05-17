@@ -1078,9 +1078,6 @@ function CarreraContent() {
                     </Text>
                     <Text style={{ color: colors.primary, fontWeight: "700", flex: 1 }}>
                       Vuelta {lap}
-                    </Text>
-                    <Text style={{ color: colors.textDim, fontSize: 12 }}>
-                      {evs.length} evento{evs.length !== 1 ? "s" : ""}
                       {(() => {
                         const counts = evs.reduce((acc, { ev }) => {
                           const type = EVENT_TYPE_LABELS[ev.event_type] || `Tipo ${ev.event_type}`;
@@ -1091,7 +1088,15 @@ function CarreraContent() {
                           .sort(([, a], [, b]) => b - a)
                           .map(([type, count]) => `${count}× ${type}`)
                           .join(", ");
-                        return summary ? ` · ${summary}` : "";
+                        return summary ? (
+                          <Text style={{ color: colors.textDim, fontWeight: "400", fontSize: 12 }}>
+                            {" "}({evs.length} evento{evs.length !== 1 ? "s" : ""}: {summary})
+                          </Text>
+                        ) : (
+                          <Text style={{ color: colors.textDim, fontWeight: "400", fontSize: 12 }}>
+                            {" "}({evs.length} evento{evs.length !== 1 ? "s" : ""})
+                          </Text>
+                        );
                       })()}
                     </Text>
                   </Pressable>
@@ -1130,7 +1135,7 @@ function CarreraContent() {
 
                   {/* Description input */}
                   <TextInput
-                    key={`event-desc-${idx}-${(ev.description || "").length}-${(ev.description || "").slice(0, 16)}`}
+                    key={`event-desc-${idx}`}
                     ref={(el) => {
                       eventTextInputRefs.current[idx] = el;
                       requestAnimationFrame(() => autoResizeEl(el, 40));
