@@ -446,6 +446,8 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 			if stderrText == "" {
 				stderrText = err.Error()
 			}
+			// Log full error to console for debugging
+			fmt.Printf("[generation] ERROR for %s: %v\nSTDERR: %s\n", audioID, err, stderrText)
 			m.setProgressError(audioID, "error", -1, stderrText)
 		} else {
 			m.setProgressError(audioID, "done", -1, "")

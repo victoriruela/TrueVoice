@@ -336,7 +336,16 @@ export default function SettingsScreen() {
     const m = downloadModal.model;
     setDownloadModal({ model: m, status: "downloading" });
     try {
-      await startModelDownload(m.id);
+      const { data } = await startModelDownload(m.id);
+      
+      // If already downloaded, skip to done state
+      if (data.status === "already_downloaded") {
+        patch({ selected_model: m.id, selected_model_name: m.name });
+        setDownloadModal({ model: m, status: "done" });
+        setTimeout(() => setDownloadModal(null), 2500);
+        return;
+      }
+
       downloadPollRef.current = setInterval(async () => {
         try {
           const { data } = await getModelDownloadProgress(m.id);

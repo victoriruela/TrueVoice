@@ -59,7 +59,11 @@ func isModelDownloaded(modelID string) bool {
 		"snapshots",
 	)
 	entries, err := os.ReadDir(cachePath)
-	return err == nil && len(entries) > 0
+	downloaded := err == nil && len(entries) > 0
+	// Debug logging
+	fmt.Printf("[model-check] %s → path=%s, exists=%v, entries=%d\n",
+		modelID, cachePath, downloaded, len(entries))
+	return downloaded
 }
 
 func (s *Server) checkModelStatus(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +85,16 @@ func (s *Server) startModelDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	modelID := strings.TrimSpace(req.ID)
 
+	// Check if already downloaded before starting
+	if isModelDownloaded(modelID) {
+		fmt.Printf("[model-download] %s already downloaded, skipping\n", modelID)
+		writeJSON(w, http.StatusOK, map[string]string{
+			"download_id": modelID,
+			"status":      "already_downloaded",
+		})
+		return
+	}
+
 	// If already in progress, return status immediately
 	if existing, ok := globalModelDownloadJobs.Load(modelID); ok {
 		job := existing.(*modelDownloadJob)
@@ -100,6 +114,7 @@ func (s *Server) startModelDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fmt.Printf("[model-download] Starting download for %s\n", modelID)
 	job := &modelDownloadJob{status: "downloading"}
 	globalModelDownloadJobs.Store(modelID, job)
 
