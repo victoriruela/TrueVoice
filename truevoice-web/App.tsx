@@ -25,12 +25,24 @@ const TABS: Array<{ key: TabKey; title: string }> = [
 function AllScreens({ tab }: { tab: TabKey }) {
   return (
     <View style={{ flex: 1 }}>
-      {tab === "race" && <RaceScreen />}
-      {tab === "generate" && <GenerateScreen />}
-      {tab === "context" && <ContextoScreen />}
-      {tab === "outputs" && <OutputsScreen />}
-      {tab === "voices" && <VoicesScreen />}
-      {tab === "settings" && <SettingsScreen />}
+      <View style={{ flex: 1, display: tab === "race" ? "flex" : "none" }}>
+        <RaceScreen />
+      </View>
+      <View style={{ flex: 1, display: tab === "generate" ? "flex" : "none" }}>
+        <GenerateScreen />
+      </View>
+      <View style={{ flex: 1, display: tab === "context" ? "flex" : "none" }}>
+        <ContextoScreen />
+      </View>
+      <View style={{ flex: 1, display: tab === "outputs" ? "flex" : "none" }}>
+        <OutputsScreen />
+      </View>
+      <View style={{ flex: 1, display: tab === "voices" ? "flex" : "none" }}>
+        <VoicesScreen />
+      </View>
+      <View style={{ flex: 1, display: tab === "settings" ? "flex" : "none" }}>
+        <SettingsScreen />
+      </View>
     </View>
   );
 }

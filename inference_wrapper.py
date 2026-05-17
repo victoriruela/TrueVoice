@@ -321,7 +321,16 @@ def main():
 
     # ── Pause tag + chunking pipeline ────────────────────────────────
     # 1) Split by pause tags. 2) For each text segment, chunk by words.
-    pause_segments = parse_pause_tags(full_script)
+    # NOTE: Pause tags are incompatible with multi-speaker (Speaker 2+) because
+    # splitting by pause breaks the "Speaker N:" sequence expected by VibeVoice.
+    # If we detect multiple speakers, we disable pause tag processing.
+    has_multi_speaker = 'Speaker 2:' in full_script or 'Speaker 3:' in full_script or 'Speaker 4:' in full_script
+    
+    if has_multi_speaker:
+        # Multi-speaker mode: ignore pause tags, process as single block
+        pause_segments = [('text', full_script)]
+    else:
+        pause_segments = parse_pause_tags(full_script)
 
     # Inspect sample rate from processor's audio config (fallback 24000)
     sample_rate = 24000
@@ -338,8 +347,12 @@ def main():
         for kind, val in pause_segments
     )
 
-    print(f"Generating with cfg_scale={args.cfg_scale}, ddpm_steps={args.ddpm_steps}, "
-          f"sampling={args.use_sampling}, pause_tags={has_pause}, chunking={will_chunk}...", flush=True)
+    if has_multi_speaker:
+        print(f"Generating multi-speaker audio (pause tags disabled) with cfg_scale={args.cfg_scale}, "
+              f"ddpm_steps={args.ddpm_steps}, sampling={args.use_sampling}...", flush=True)
+    else:
+        print(f"Generating with cfg_scale={args.cfg_scale}, ddpm_steps={args.ddpm_steps}, "
+              f"sampling={args.use_sampling}, pause_tags={has_pause}, chunking={will_chunk}...", flush=True)
     start_time = time.time()
 
     if not has_pause and not will_chunk:
