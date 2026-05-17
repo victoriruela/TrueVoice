@@ -209,7 +209,10 @@ export default function VoicesScreen() {
               <Text style={{ color: colors.text }}>Narrador principal</Text>
             </Pressable>
 
-            <Pressable onPress={handleSaveNarrator} style={shared.button}>
+            <Pressable
+              onPress={handleSaveNarrator}
+              style={[shared.button, { alignSelf: "flex-start", paddingVertical: 6, paddingHorizontal: 10 }]}
+            >
               <Text style={shared.buttonText}>Guardar narrador</Text>
             </Pressable>
           </View>

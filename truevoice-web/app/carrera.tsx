@@ -1091,12 +1091,12 @@ function CarreraContent() {
                           .map(([type, count]) => `${count}× ${type}`)
                           .join(", ");
                         return summary ? (
-                          <Text style={{ color: colors.textDim, fontWeight: "400", fontSize: 12 }}>
-                            {" "}({evs.length} evento{evs.length !== 1 ? "s" : ""}: {summary})
+                          <Text style={{ color: colors.textDim, fontWeight: "400", fontSize: 12, marginLeft: 8 }}>
+                            ({evs.length} evento{evs.length !== 1 ? "s" : ""}: {summary})
                           </Text>
                         ) : (
-                          <Text style={{ color: colors.textDim, fontWeight: "400", fontSize: 12 }}>
-                            {" "}({evs.length} evento{evs.length !== 1 ? "s" : ""})
+                          <Text style={{ color: colors.textDim, fontWeight: "400", fontSize: 12, marginLeft: 8 }}>
+                            ({evs.length} evento{evs.length !== 1 ? "s" : ""})
                           </Text>
                         );
                       })()}
@@ -1297,9 +1297,9 @@ function CarreraContent() {
             style={[
               shared.button,
               {
-                backgroundColor: colors.surfaceLight,
+                backgroundColor: colors.success,
                 borderWidth: 1,
-                borderColor: colors.border,
+                borderColor: colors.success,
                 minWidth: 160,
               },
             ]}
