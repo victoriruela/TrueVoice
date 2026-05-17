@@ -15,7 +15,6 @@ const SLOTS = [1, 2, 3, 4];
 
 export default function VoicesScreen() {
   const { voices, loading, fetch, upload, remove } = useVoiceStore();
-  const selectedVoice = useConfigStore((s) => s.config.selected_voice);
   const narrators = useConfigStore((s) => s.config.narrators || []);
   const patchConfig = useConfigStore((s) => s.patch);
   const fetchNarrators = useConfigStore((s) => s.fetchNarrators);
@@ -47,21 +46,13 @@ export default function VoicesScreen() {
     [upload],
   );
 
-  const handleSelect = useCallback(
-    (name: string) => {
-      patchConfig({ selected_voice: name });
-    },
-    [patchConfig],
-  );
-
   const handleDelete = useCallback(
     async (name: string) => {
       if (window.confirm(`¿Eliminar la voz "${name}"?`)) {
         await remove(name);
-        if (selectedVoice === name) patchConfig({ selected_voice: "Alice" });
       }
     },
-    [remove, selectedVoice, patchConfig],
+    [remove],
   );
 
   const voiceOptions = useMemo(
@@ -287,50 +278,25 @@ export default function VoicesScreen() {
         <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: 16 }} />
       )}
 
-      {/* Voice grid */}
+      {/* Voice grid — only for viewing/deleting, assignment is via narrators */}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-        {voices.map((v) => {
-          const isSelected = selectedVoice === v.name;
-          return (
+        {voices.map((v) => (
+          <View
+            key={v.name}
+            style={[shared.card, { width: 180 }]}
+          >
+            <Text style={{ color: colors.text, fontWeight: "600", fontSize: 15, marginBottom: 4 }}>
+              {v.alias || v.name}
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 12 }}>{v.filename}</Text>
             <Pressable
-              key={v.name}
-              onPress={() => handleSelect(v.name)}
-              style={[
-                shared.card,
-                {
-                  width: 180,
-                  borderColor: isSelected ? colors.primary : colors.border,
-                  borderWidth: isSelected ? 2 : 1,
-                },
-              ]}
+              onPress={() => handleDelete(v.name)}
+              style={{ marginTop: 8 }}
             >
-              <Text
-                style={{
-                  color: isSelected ? colors.primary : colors.text,
-                  fontWeight: "600",
-                  fontSize: 15,
-                  marginBottom: 4,
-                }}
-              >
-                {v.alias || v.name}
-              </Text>
-              <Text style={{ color: colors.textDim, fontSize: 12 }}>{v.filename}</Text>
-
-              {/* Only show delete for custom voices (not built-in) */}
-              {v.filename.startsWith("voices/") || !v.filename.includes("/") ? (
-                <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    handleDelete(v.name);
-                  }}
-                  style={{ marginTop: 8 }}
-                >
-                  <Text style={{ color: colors.error, fontSize: 12 }}>Eliminar</Text>
-                </Pressable>
-              ) : null}
+              <Text style={{ color: colors.error, fontSize: 12 }}>Eliminar</Text>
             </Pressable>
-          );
-        })}
+          </View>
+        ))}
       </View>
 
       <View style={{ height: 40 }} />

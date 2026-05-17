@@ -120,6 +120,34 @@ def parse_txt_script(txt_content: str):
 
 # ── Pause tag parsing ─────────────────────────────────────────────────
 _PAUSE_RE = re.compile(r"\[pause(?::(\d+))?\]", re.IGNORECASE)
+_SPEAKER_START_RE = re.compile(r'^\s*Speaker\s+\d+:', re.IGNORECASE)
+_SPEAKER_FIND_RE = re.compile(r'\bSpeaker\s+(\d+):', re.IGNORECASE)
+
+
+def ensure_speaker_prefix(segments):
+    """
+    In multi-speaker mode, ensure every text segment starts with a Speaker N: tag.
+    If a fragment doesn't start with one (e.g. text after a mid-turn pause),
+    prepend the last known speaker tag so the model always has context.
+    """
+    result = []
+    last_speaker_num = 1
+    for kind, val in segments:
+        if kind == 'silence':
+            result.append((kind, val))
+            continue
+        stripped = val.strip()
+        if not stripped:
+            continue
+        if _SPEAKER_START_RE.match(stripped):
+            matches = _SPEAKER_FIND_RE.findall(stripped)
+            if matches:
+                last_speaker_num = int(matches[-1])
+            result.append((kind, stripped))
+        else:
+            # No speaker tag at start — carry forward the last known speaker
+            result.append((kind, f'Speaker {last_speaker_num}: {stripped}'))
+    return result
 
 
 def parse_pause_tags(text: str):
@@ -321,16 +349,21 @@ def main():
 
     # ── Pause tag + chunking pipeline ────────────────────────────────
     # 1) Split by pause tags. 2) For each text segment, chunk by words.
-    # NOTE: Pause tags are incompatible with multi-speaker (Speaker 2+) because
-    # splitting by pause breaks the "Speaker N:" sequence expected by VibeVoice.
-    # If we detect multiple speakers, we disable pause tag processing.
-    has_multi_speaker = 'Speaker 2:' in full_script or 'Speaker 3:' in full_script or 'Speaker 4:' in full_script
-    
+    # In multi-speaker mode we also split by pause tags, but ensure every
+    # resulting text fragment starts with a Speaker N: prefix so the model
+    # always receives proper context.
+    pause_segments = parse_pause_tags(full_script)
+    has_multi_speaker = any(
+        _SPEAKER_FIND_RE.search(val)
+        for kind, val in pause_segments
+        if kind == 'text'
+        if _SPEAKER_FIND_RE.search(val) and int((_SPEAKER_FIND_RE.search(val) or type('', (), {'group': lambda self, x: '1'})()).group(1)) >= 2
+    )
+    # Simpler check:
+    has_multi_speaker = bool(re.search(r'\bSpeaker\s+[2-9]:', full_script, re.IGNORECASE))
+
     if has_multi_speaker:
-        # Multi-speaker mode: ignore pause tags, process as single block
-        pause_segments = [('text', full_script)]
-    else:
-        pause_segments = parse_pause_tags(full_script)
+        pause_segments = ensure_speaker_prefix(pause_segments)
 
     # Inspect sample rate from processor's audio config (fallback 24000)
     sample_rate = 24000
@@ -347,12 +380,9 @@ def main():
         for kind, val in pause_segments
     )
 
-    if has_multi_speaker:
-        print(f"Generating multi-speaker audio (pause tags disabled) with cfg_scale={args.cfg_scale}, "
-              f"ddpm_steps={args.ddpm_steps}, sampling={args.use_sampling}...", flush=True)
-    else:
-        print(f"Generating with cfg_scale={args.cfg_scale}, ddpm_steps={args.ddpm_steps}, "
-              f"sampling={args.use_sampling}, pause_tags={has_pause}, chunking={will_chunk}...", flush=True)
+    print(f"Generating with cfg_scale={args.cfg_scale}, ddpm_steps={args.ddpm_steps}, "
+          f"sampling={args.use_sampling}, multi_speaker={has_multi_speaker}, "
+          f"pause_tags={has_pause}, chunking={will_chunk}...", flush=True)
     start_time = time.time()
 
     if not has_pause and not will_chunk:
