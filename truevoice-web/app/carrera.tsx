@@ -325,15 +325,17 @@ function CarreraContent() {
   // Collapse all laps when a new session / XML is loaded
   useEffect(() => {
     const key = `${store.currentSession || ""}:${store.header?.track_event || ""}`;
-    if (key !== ":" && key !== prevSessionKeyRef.current && store.events.length > 0) {
+    if (key !== ":" && key !== prevSessionKeyRef.current) {
       prevSessionKeyRef.current = key;
-      setCollapsedLaps(new Set(store.events.map((ev) => ev.lap)));
+      if (store.events.length > 0) {
+        setCollapsedLaps(new Set(store.events.map((ev) => ev.lap)));
+      }
     }
-    if (store.events.length === 0) {
+    if (store.events.length === 0 && prevSessionKeyRef.current !== "") {
       prevSessionKeyRef.current = "";
       setCollapsedLaps(new Set());
     }
-  }, [store.currentSession, store.header?.track_event, store.events.length]);
+  }, [store.currentSession, store.header?.track_event]);
 
   // Generic auto-resize for any textarea node
   const autoResizeEl = useCallback((raw: any, minHeight = 40) => {
