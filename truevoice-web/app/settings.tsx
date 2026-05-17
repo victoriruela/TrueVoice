@@ -30,6 +30,18 @@ const QUANTIZE_OPTIONS = [
 
 const FORMAT_OPTIONS = ["wav", "mp3", "flac", "ogg"];
 
+const PARAM_HELP: Record<string, string> = {
+  cfg_scale: "CFG Scale controla la adherencia al prompt. Valores más altos (3-5) hacen que el modelo siga más fielmente las características de la voz de referencia, pero pueden reducir la calidad. Valores bajos (1-2) dan más libertad al modelo. Recomendado: 3.0",
+  ddpm_steps: "Pasos de difusión DDPM. Más pasos mejoran la calidad del audio pero aumentan el tiempo de generación. Valores típicos: 25-100. Menos pasos generan más rápido pero con menor calidad.",
+  disable_prefill: "Desactiva la clonación de voz (prefill). Cuando está activado, el modelo ignora la voz de referencia y genera con su voz base. Útil para comparar o depurar.",
+  voice_speed_factor: "Factor de velocidad aplicado a la voz de referencia antes de la síntesis. 1.0 = velocidad original. Valores < 1.0 ralentizan, > 1.0 aceleran. Rango recomendado: 0.8 - 1.2",
+  max_words_per_chunk: "Número máximo de palabras por bloque de generación. Textos largos se dividen automáticamente en bloques más pequeños para evitar errores de memoria. Mayor valor = bloques más grandes pero más riesgo de fallo.",
+  quantize_llm: "Cuantización reduce el uso de VRAM/RAM cargando el modelo en menor precisión. 4-bit usa ~50% menos VRAM, 8-bit ~30% menos. Solo funciona en GPU CUDA. Puede reducir ligeramente la calidad.",
+  use_sampling: "Modo sampling activa generación probabilística en lugar de determinista. Con sampling activo, cada generación puede dar resultados ligeramente diferentes (más creatividad/variación). Sin sampling, mismo texto + voz = mismo audio.",
+  temperature: "Controla la aleatoriedad en el sampling. Valores bajos (0.1-0.5) = más conservador y predecible. Valores altos (1.0-2.0) = más variado y creativo, pero puede generar artefactos. Solo activo si sampling está activado.",
+  top_p: "Nucleus sampling (Top-p). Solo considera tokens cuya probabilidad acumulada sea <= p. Top-p=0.95 considera el 95% más probable, ignorando opciones muy improbables. Reduce incoherencias. Solo activo si sampling está activado.",
+};
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={shared.card}>
@@ -46,6 +58,8 @@ function Slider({
   max,
   step,
   onChange,
+  helpText,
+  onHelpPress,
 }: {
   label: string;
   value: number;
@@ -53,12 +67,33 @@ function Slider({
   max: number;
   step: number;
   onChange: (v: number) => void;
+  helpText?: string;
+  onHelpPress?: (text: string) => void;
 }) {
   return (
     <View style={{ marginBottom: 12 }}>
-      <Text style={{ color: colors.textDim, marginBottom: 4 }}>
-        {label}: <Text style={{ color: colors.primary }}>{value}</Text>
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+        <Text style={{ color: colors.textDim }}>
+          {label}: <Text style={{ color: colors.primary }}>{value}</Text>
+        </Text>
+        {helpText && onHelpPress && (
+          <Pressable
+            onPress={() => onHelpPress(helpText)}
+            style={{
+              marginLeft: 6,
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>?</Text>
+          </Pressable>
+        )}
+      </View>
       <input
         type="range"
         min={min}
@@ -226,6 +261,9 @@ export default function SettingsScreen() {
     error?: string;
   } | null>(null);
   const downloadPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Help modal state
+  const [helpModal, setHelpModal] = useState<string | null>(null);
 
   // Cleanup poll on unmount
   useEffect(() => {
@@ -507,6 +545,8 @@ export default function SettingsScreen() {
           max={5.0}
           step={0.1}
           onChange={(v) => patch({ cfg_scale: v })}
+          helpText={PARAM_HELP.cfg_scale}
+          onHelpPress={setHelpModal}
         />
         <Slider
           label="DDPM Steps"
@@ -515,6 +555,8 @@ export default function SettingsScreen() {
           max={200}
           step={1}
           onChange={(v) => patch({ ddpm_steps: v })}
+          helpText={PARAM_HELP.ddpm_steps}
+          onHelpPress={setHelpModal}
         />
         <Pressable
           onPress={() => patch({ disable_prefill: !config.disable_prefill })}
@@ -537,7 +579,22 @@ export default function SettingsScreen() {
               <Text style={{ color: colors.bg, fontSize: 12, fontWeight: "bold" }}>✓</Text>
             )}
           </View>
-          <Text style={{ color: colors.text }}>Desactivar clonación de voz (prefill)</Text>
+          <Text style={{ color: colors.text, flex: 1 }}>Desactivar clonación de voz (prefill)</Text>
+          <Pressable
+            onPress={() => setHelpModal(PARAM_HELP.disable_prefill)}
+            style={{
+              marginLeft: 6,
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>?</Text>
+          </Pressable>
         </Pressable>
       </Section>
 
@@ -550,6 +607,8 @@ export default function SettingsScreen() {
           max={1.2}
           step={0.01}
           onChange={(v) => patch({ voice_speed_factor: v })}
+          helpText={PARAM_HELP.voice_speed_factor}
+          onHelpPress={setHelpModal}
         />
         <Slider
           label="Palabras por bloque (chunking)"
@@ -558,9 +617,28 @@ export default function SettingsScreen() {
           max={500}
           step={10}
           onChange={(v) => patch({ max_words_per_chunk: v })}
+          helpText={PARAM_HELP.max_words_per_chunk}
+          onHelpPress={setHelpModal}
         />
 
-        <Text style={{ color: colors.textDim, marginBottom: 6, marginTop: 4 }}>Cuantización LLM</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6, marginTop: 4 }}>
+          <Text style={{ color: colors.textDim, flex: 1 }}>Cuantización LLM</Text>
+          <Pressable
+            onPress={() => setHelpModal(PARAM_HELP.quantize_llm)}
+            style={{
+              marginLeft: 6,
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>?</Text>
+          </Pressable>
+        </View>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
           {QUANTIZE_OPTIONS.map((q) => (
             <Pressable
@@ -610,7 +688,22 @@ export default function SettingsScreen() {
               <Text style={{ color: colors.bg, fontSize: 12, fontWeight: "bold" }}>✓</Text>
             )}
           </View>
-          <Text style={{ color: colors.text }}>Modo sampling (variación creativa)</Text>
+          <Text style={{ color: colors.text, flex: 1 }}>Modo sampling (variación creativa)</Text>
+          <Pressable
+            onPress={() => setHelpModal(PARAM_HELP.use_sampling)}
+            style={{
+              marginLeft: 6,
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>?</Text>
+          </Pressable>
         </Pressable>
 
         {config.use_sampling && (
@@ -622,6 +715,8 @@ export default function SettingsScreen() {
               max={2.0}
               step={0.05}
               onChange={(v) => patch({ temperature: v })}
+              helpText={PARAM_HELP.temperature}
+              onHelpPress={setHelpModal}
             />
             <Slider
               label="Top-p"
@@ -630,6 +725,8 @@ export default function SettingsScreen() {
               max={1.0}
               step={0.05}
               onChange={(v) => patch({ top_p: v })}
+              helpText={PARAM_HELP.top_p}
+              onHelpPress={setHelpModal}
             />
           </>
         )}
@@ -833,6 +930,48 @@ export default function SettingsScreen() {
             )}
           </View>
         </View>
+      </Modal>
+    )}
+
+    {/* ── Help modal ───────────────────────────────────────────── */}
+    {helpModal && (
+      <Modal visible transparent animationType="fade">
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+          onPress={() => setHelpModal(null)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 8,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: colors.border,
+              maxWidth: 500,
+              width: "100%",
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={{ color: colors.primary, fontSize: 16, fontWeight: "700", marginBottom: 12 }}>
+              ℹ️ Información del parámetro
+            </Text>
+            <Text style={{ color: colors.text, lineHeight: 20, marginBottom: 16 }}>
+              {helpModal}
+            </Text>
+            <Pressable
+              style={[shared.button, { alignSelf: "flex-end" }]}
+              onPress={() => setHelpModal(null)}
+            >
+              <Text style={shared.buttonText}>Entendido</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
       </Modal>
     )}
     </View>
