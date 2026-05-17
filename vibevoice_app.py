@@ -467,7 +467,8 @@ def generate_speech_vibevoice(text, output_path,
                                temperature=0.95,
                                top_p=0.95,
                                use_sampling=False,
-                               seed=None):
+                               seed=None,
+                               checkpoint_path=None):
     """
     Genera audio desde texto usando VibeVoice.
 
@@ -557,6 +558,8 @@ def generate_speech_vibevoice(text, output_path,
         cmd.append("--disable_prefill")
     if seed is not None:
         cmd += ["--seed", str(seed)]
+    if checkpoint_path:
+        cmd += ["--checkpoint_path", str(checkpoint_path)]
 
     # Configura el PYTHONPATH para que encuentre el paquete 'vibevoice'
     env = os.environ.copy()
@@ -709,6 +712,8 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
                         help="Activa sampling (temperature/top_p). Por defecto, greedy.")
     parser.add_argument("--seed", type=int, default=None,
                         help="Semilla aleatoria para reproducibilidad.")
+    parser.add_argument("--checkpoint-path", type=str, default=None,
+                        help="Ruta al checkpoint LoRA para usar en generación.")
 
     args = parser.parse_args()
 
@@ -818,7 +823,8 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
                                              temperature=args.temperature,
                                              top_p=args.top_p,
                                              use_sampling=args.use_sampling,
-                                             seed=args.seed):
+                                             seed=args.seed,
+                                             checkpoint_path=args.checkpoint_path):
                     counter += 1
                     print(f" Guardado: {output_file}\n")
 
@@ -844,6 +850,7 @@ NOTA: La primera ejecución descargará el modelo (~6GB). El modelo Realtime-0.5
             top_p=args.top_p,
             use_sampling=args.use_sampling,
             seed=args.seed,
+            checkpoint_path=args.checkpoint_path,
         )
         if success:
             print("✨ Proceso completado exitosamente")

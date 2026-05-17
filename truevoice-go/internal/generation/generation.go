@@ -387,6 +387,10 @@ func (m *Manager) GenerateHandler(w http.ResponseWriter, r *http.Request) {
 	if req.DisablePrefill {
 		args = append(args, "--disable-prefill")
 	}
+	// Active LoRA: pass checkpoint path when configured in config
+	if loraPath := m.cfg.GetString("active_lora_path"); loraPath != "" {
+		args = append(args, "--checkpoint-path", loraPath)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, pythonExe, args...)

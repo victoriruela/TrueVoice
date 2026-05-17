@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
+import { useTrainingStore } from "../src/stores/useTrainingStore";
 import {
   ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus,
   browseDrives, browseFolders, listModels, type ModelInfo,
@@ -244,6 +245,9 @@ export default function SettingsScreen() {
   const { config, loading, patch } = useConfigStore();
   const addCustomModel = useConfigStore((s) => s.addCustomModel);
   const deleteCustomModel = useConfigStore((s) => s.deleteCustomModel);
+  const setActiveLoRA = useConfigStore((s) => s.setActiveLoRA);
+  const clearActiveLoRA = useConfigStore((s) => s.clearActiveLoRA);
+  const { loras, fetchLoRAs } = useTrainingStore();
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
@@ -281,6 +285,7 @@ export default function SettingsScreen() {
         /* keep defaults */
       }
     })();
+    fetchLoRAs();
   }, []);
 
   const refreshOllamaModels = useCallback(async () => {
@@ -518,6 +523,59 @@ export default function SettingsScreen() {
             <Text style={shared.buttonText}>Añadir modelo</Text>
           </Pressable>
         </View>
+      </Section>
+
+      {/* Active LoRA */}
+      <Section title="🧠 LoRA activo">
+        <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 10 }}>
+          Un LoRA entrenado adapta la voz del modelo. Se aplica en todas las generaciones mientras esté activo.
+        </Text>
+        {config.active_lora_path ? (
+          <View style={{ marginBottom: 10, padding: 10, backgroundColor: colors.surfaceLight, borderRadius: 8, borderWidth: 1, borderColor: colors.primary }}>
+            <Text style={{ color: colors.primary, fontWeight: "600", marginBottom: 2 }}>
+              ✅ LoRA activo
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 11 }} numberOfLines={1}>
+              {config.active_lora_path.split(/[\\/]/).pop()}
+            </Text>
+            <Pressable
+              onPress={clearActiveLoRA}
+              style={[shared.buttonSecondary, { marginTop: 8, alignSelf: "flex-start" }]}
+            >
+              <Text style={{ color: colors.error, fontWeight: "600" }}>Desactivar LoRA</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 10 }}>
+            Sin LoRA activo — usando clonación de voz estándar.
+          </Text>
+        )}
+        {loras.length === 0 ? (
+          <Text style={{ color: colors.textDim, fontSize: 12 }}>
+            No hay LoRAs entrenados. Ve a la pestaña Entrenar para entrenar uno.
+          </Text>
+        ) : (
+          <View style={{ gap: 6 }}>
+            {loras.map((lora: any) => {
+              const name = typeof lora === "string" ? lora : lora.name;
+              const isActive = config.active_lora_path?.endsWith(name);
+              return (
+                <Pressable
+                  key={name}
+                  onPress={() => isActive ? clearActiveLoRA() : setActiveLoRA(name)}
+                  style={[
+                    shared.buttonSecondary,
+                    isActive && { borderColor: colors.primary, backgroundColor: colors.surfaceLight },
+                  ]}
+                >
+                  <Text style={{ color: isActive ? colors.primary : colors.text }}>
+                    {isActive ? "✅ " : ""}{name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
       </Section>
 
       {/* Output format */}

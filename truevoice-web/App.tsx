@@ -17,10 +17,10 @@ type TabKey = "generate" | "race" | "context" | "outputs" | "voices" | "settings
 const TABS: Array<{ key: TabKey; title: string }> = [
   { key: "race", title: "Carrera" },
   { key: "generate", title: "Generar" },
-  { key: "train", title: "Entrenar" },
   { key: "context", title: "Contexto" },
   { key: "outputs", title: "Audios" },
   { key: "voices", title: "Voces" },
+  { key: "train", title: "Entrenar" },
   { key: "settings", title: "Config" },
 ];
 

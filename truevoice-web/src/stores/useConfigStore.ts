@@ -47,6 +47,7 @@ export interface AppConfig {
   use_sampling: boolean;
   narrators: NarratorConfig[];
   custom_models: CustomModel[];
+  active_lora_path: string;
   [key: string]: any;
 }
 
@@ -82,6 +83,7 @@ const DEFAULT_CONFIG: AppConfig = {
   use_sampling: false,
   narrators: [],
   custom_models: [],
+  active_lora_path: "",
 };
 
 interface ConfigStore {
@@ -96,6 +98,8 @@ interface ConfigStore {
   setPrincipalNarrator: (key: string) => Promise<void>;
   addCustomModel: (m: CustomModel) => Promise<void>;
   deleteCustomModel: (id: string) => Promise<void>;
+  setActiveLoRA: (name: string) => Promise<void>;
+  clearActiveLoRA: () => Promise<void>;
 }
 
 export const useConfigStore = create<ConfigStore>((set, get) => ({
@@ -188,6 +192,33 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
           custom_models: cur.filter((m) => m.id !== id),
         },
       });
+    } catch {
+      /* silent */
+    }
+  },
+
+  setActiveLoRA: async (name) => {
+    try {
+      const res = await fetch("/training/loras/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        set({ config: { ...get().config, active_lora_path: data.active_lora_path || "" } });
+      }
+    } catch {
+      /* silent */
+    }
+  },
+
+  clearActiveLoRA: async () => {
+    try {
+      const res = await fetch("/training/loras/active", { method: "DELETE" });
+      if (res.ok) {
+        set({ config: { ...get().config, active_lora_path: "" } });
+      }
     } catch {
       /* silent */
     }

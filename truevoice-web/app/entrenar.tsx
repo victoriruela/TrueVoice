@@ -3,6 +3,17 @@ import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert } from "rea
 import { shared, colors } from "../src/theme";
 import { useTrainingStore, type DatasetFile, type TrainingJob } from "../src/stores/useTrainingStore";
 
+// ── Types for audio split ──────────────────────────────────────────────────
+interface SplitJobStatus {
+  id: string;
+  status: "running" | "done" | "error";
+  progress: number;
+  total: number;
+  done: number;
+  error?: string;
+  segments?: Array<{ audio: string; audio_dir: string; transcript?: string }>;
+}
+
 export default function EntrenarScreen() {
   const {
     sessionId,
@@ -30,6 +41,16 @@ export default function EntrenarScreen() {
   const [batchSize, setBatchSize] = useState(4);
   const [learningRate, setLearningRate] = useState(2.5e-5);
   const [voicePromptDropRate, setVoicePromptDropRate] = useState(1.0);
+
+  // Audio splitter state
+  const [splitJobId, setSplitJobId] = useState<string | null>(null);
+  const [splitStatus, setSplitStatus] = useState<SplitJobStatus | null>(null);
+  const [splitPolling, setSplitPolling] = useState(false);
+  const [whisperModel, setWhisperModel] = useState<string>("base");
+  const [silenceThreshold, setSilenceThreshold] = useState("-35");
+  const [speakerNumber, setSpeakerNumber] = useState(1);
+  const splitPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -118,6 +139,72 @@ export default function EntrenarScreen() {
     }
   }, [clearDataset]);
 
+  // ── Audio splitter handlers ──────────────────────────────────────────────
+  const handleSplitAudioSelect = useCallback(() => {
+    if (typeof document === "undefined") return;
+    if (!audioInputRef.current) {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".wav,.mp3,.flac,.ogg,.m4a,.mp4,.aac";
+      audioInputRef.current = input;
+    }
+    const input = audioInputRef.current;
+    input.onchange = async (e: any) => {
+      const file = e.target.files?.[0] as File;
+      if (!file) return;
+      const form = new FormData();
+      form.append("audio", file);
+      form.append("session_id", sessionId || "split_" + Date.now());
+      form.append("whisper_model", whisperModel);
+      form.append("silence_threshold", silenceThreshold);
+      form.append("speaker_number", String(speakerNumber));
+      try {
+        const res = await fetch("/training/split-audio", { method: "POST", body: form });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        setSplitJobId(data.job_id);
+        setSplitStatus({ id: data.job_id, status: "running", progress: 0, total: 0, done: 0 });
+        setSplitPolling(true);
+      } catch (err: any) {
+        Alert.alert("Error", err.message || "Failed to start split");
+      }
+    };
+    input.click();
+  }, [sessionId, whisperModel, silenceThreshold, speakerNumber]);
+
+  useEffect(() => {
+    if (!splitPolling || !splitJobId) return;
+    const poll = setInterval(async () => {
+      try {
+        const res = await fetch(`/training/split-progress/${splitJobId}`);
+        if (!res.ok) return;
+        const data: SplitJobStatus = await res.json();
+        setSplitStatus(data);
+        if (data.status === "done" || data.status === "error") {
+          setSplitPolling(false);
+          clearInterval(poll);
+        }
+      } catch {
+        /* silent */
+      }
+    }, 1000);
+    splitPollRef.current = poll;
+    return () => clearInterval(poll);
+  }, [splitPolling, splitJobId]);
+
+  const handleAddSegmentsToDataset = useCallback(async () => {
+    if (!splitStatus?.segments || splitStatus.segments.length === 0) return;
+    // Upload all segment WAV + TXT files from the output dir to the training dataset
+    // We re-use the /training/upload endpoint by fetching each file via the server
+    // Actually, segments are already on the server in output_dir; we can validate them directly
+    // by calling /training/validate with the session_id and pointing it to the segments dir.
+    // For now, we alert the user to proceed to the Dataset section.
+    Alert.alert(
+      "Segmentos listos",
+      `${splitStatus.done} segmentos generados. Los archivos están en la carpeta de training data. Puedes cargarlos directamente en la sección Dataset.`,
+    );
+  }, [splitStatus]);
+
   const validCount = validatedFiles.filter((f) => f.valid).length;
   const invalidCount = validatedFiles.length - validCount;
 
@@ -128,6 +215,101 @@ export default function EntrenarScreen() {
         <Text style={shared.p}>
           Entrena un adaptador LoRA personalizado con tus propios audios y transcripciones.
         </Text>
+
+        {/* ── Prepare dataset section ────────────────────────────────── */}
+        <View style={{ ...shared.section, marginTop: 16 }}>
+          <Text style={shared.h2}>🎵 Preparar Dataset</Text>
+          <Text style={{ ...shared.labelText, color: colors.textDim, marginBottom: 10, fontSize: 12 }}>
+            ¿Tienes un audio largo? Divídelo automáticamente en fragmentos y transcríbelos con Whisper.
+          </Text>
+
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 10 }}>
+            <View style={{ flex: 1, minWidth: 140 }}>
+              <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>Modelo Whisper</Text>
+              <select
+                value={whisperModel}
+                onChange={(e) => setWhisperModel(e.target.value)}
+                style={{ width: "100%", padding: "6px 8px", backgroundColor: colors.surface, color: colors.text, borderRadius: 6, border: `1px solid ${colors.border}`, fontSize: 13 }}
+              >
+                <option value="tiny">tiny (~75 MB, más rápido)</option>
+                <option value="base">base (~145 MB, recomendado)</option>
+                <option value="small">small (~465 MB, más preciso)</option>
+                <option value="medium">medium (~1.5 GB)</option>
+              </select>
+            </View>
+
+            <View style={{ flex: 1, minWidth: 120 }}>
+              <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>Umbral silencio (dB)</Text>
+              <input
+                type="number"
+                value={silenceThreshold}
+                onChange={(e) => setSilenceThreshold(e.target.value)}
+                style={{ width: "100%", padding: "6px 8px", backgroundColor: colors.surface, color: colors.text, borderRadius: 6, border: `1px solid ${colors.border}`, fontSize: 13 }}
+              />
+            </View>
+
+            <View style={{ flex: 1, minWidth: 120 }}>
+              <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>Número de hablante</Text>
+              <input
+                type="number"
+                min={1}
+                max={4}
+                value={speakerNumber}
+                onChange={(e) => setSpeakerNumber(Number(e.target.value))}
+                style={{ width: "100%", padding: "6px 8px", backgroundColor: colors.surface, color: colors.text, borderRadius: 6, border: `1px solid ${colors.border}`, fontSize: 13 }}
+              />
+            </View>
+          </View>
+
+          <Pressable
+            onPress={handleSplitAudioSelect}
+            style={[shared.button, { alignSelf: "flex-start", marginBottom: 12 }]}
+          >
+            <Text style={shared.buttonText}>📂 Seleccionar audio largo...</Text>
+          </Pressable>
+
+          {splitStatus && (
+            <View style={{ padding: 10, backgroundColor: colors.surfaceLight, borderRadius: 8, marginBottom: 8 }}>
+              {splitStatus.status === "running" && (
+                <>
+                  <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+                    <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />
+                    <Text style={{ color: colors.text, fontWeight: "600" }}>Procesando...</Text>
+                  </View>
+                  {splitStatus.total > 0 && (
+                    <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                      Segmento {splitStatus.progress} / {splitStatus.total}
+                    </Text>
+                  )}
+                  <View style={{ height: 4, backgroundColor: colors.border, borderRadius: 2, marginTop: 6 }}>
+                    <View style={{
+                      height: 4, borderRadius: 2, backgroundColor: colors.primary,
+                      width: `${splitStatus.total > 0 ? Math.round(splitStatus.progress / splitStatus.total * 100) : 0}%`
+                    }} />
+                  </View>
+                </>
+              )}
+              {splitStatus.status === "done" && (
+                <>
+                  <Text style={{ color: colors.success, fontWeight: "600", marginBottom: 6 }}>
+                    ✅ {splitStatus.done} segmentos generados
+                  </Text>
+                  <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 8 }}>
+                    Los archivos están en la carpeta training_data. Cárgalos en la sección Dataset.
+                  </Text>
+                  <Pressable onPress={handleAddSegmentsToDataset} style={[shared.buttonSecondary, { alignSelf: "flex-start" }]}>
+                    <Text style={{ color: colors.primary }}>Ver detalles</Text>
+                  </Pressable>
+                </>
+              )}
+              {splitStatus.status === "error" && (
+                <Text style={{ color: colors.error, fontWeight: "600" }}>
+                  ❌ Error: {splitStatus.error}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
 
         {/* Upload section */}
         <View style={{ ...shared.section, marginTop: 16 }}>

@@ -20,6 +20,12 @@ type GenerationManager interface {
 	GetPythonPath() string
 }
 
+// ConfigStore interface for reading/writing config (avoids circular import)
+type ConfigStore interface {
+	GetString(key string) string
+	Patch(updates map[string]any) (map[string]any, error)
+}
+
 // TrainingConfig holds configuration for a training job
 type TrainingConfig struct {
 	JobID              string  `json:"job_id"`
@@ -67,13 +73,15 @@ type Manager struct {
 	jobs   map[string]*TrainingJob
 	mu     sync.RWMutex
 	genMgr GenerationManager
+	cfg    ConfigStore
 }
 
 // NewManager creates a new training manager
-func NewManager(genMgr GenerationManager) *Manager {
+func NewManager(genMgr GenerationManager, cfg ConfigStore) *Manager {
 	return &Manager{
 		jobs:   make(map[string]*TrainingJob),
 		genMgr: genMgr,
+		cfg:    cfg,
 	}
 }
 

@@ -44,6 +44,9 @@ type AppConfig struct {
 	Narrators    []NarratorConfig `json:"narrators"`
 	CustomModels []CustomModel    `json:"custom_models"`
 
+	// Active LoRA for generation
+	ActiveLoRAPath string `json:"active_lora_path"`
+
 	// Extra holds unknown keys for forward compatibility.
 	Extra map[string]any `json:"-"`
 }
@@ -104,6 +107,7 @@ func Default() *Store {
 			"use_sampling":        false,
 			"narrators":           []NarratorConfig{},
 			"custom_models":       []CustomModel{},
+			"active_lora_path":    "",
 		},
 	}
 	return s

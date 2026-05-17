@@ -35,7 +35,7 @@ func New(cfg *config.Store) *Server {
 		voices:   voices.NewManager(cfg),
 		race:     race.NewManager(cfg),
 		contexts: contexts.NewManager(cfg),
-		training: training.NewManager(genMgr),
+		training: training.NewManager(genMgr, cfg),
 	}
 	s.router = s.buildRouter()
 	return s
