@@ -1,0 +1,10 @@
+^C:\USERS\THE_H\PYCHARMPROJECTS\TRUEVOICE\RFACTOR2_PLUGINS\BUILD\CMAKEFILES\EB9DA5E323241D7835F8C64D645C72CE\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/the_h/PycharmProjects/TrueVoice/rFactor2_plugins -BC:/Users/the_h/PycharmProjects/TrueVoice/rFactor2_plugins/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/the_h/PycharmProjects/TrueVoice/rFactor2_plugins/build/TrueVoicePlugin.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

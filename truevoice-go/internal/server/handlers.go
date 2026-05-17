@@ -1,17 +1,157 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"truevoice/internal/config"
 )
+
+// ── Model download jobs ────────────────────────────────────────────
+
+type modelDownloadJob struct {
+	status  string // "downloading", "done", "error"
+	message string
+}
+
+var globalModelDownloadJobs sync.Map // map[string]*modelDownloadJob
+
+func serverHFHome() string {
+	if configured := strings.TrimSpace(os.Getenv("TRUEVOICE_RUNTIME_DIR")); configured != "" {
+		return filepath.Join(filepath.Clean(configured), "models", "huggingface")
+	}
+	if localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); localAppData != "" {
+		return filepath.Join(localAppData, "TrueVoice", "runtime", "models", "huggingface")
+	}
+	if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+		return filepath.Join(appData, "TrueVoice", "runtime", "models", "huggingface")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "huggingface")
+}
+
+func isModelDownloaded(modelID string) bool {
+	// Local path: check if directory exists
+	if filepath.IsAbs(modelID) {
+		info, err := os.Stat(modelID)
+		return err == nil && info.IsDir()
+	}
+	// HF cache: models--org--name/snapshots/ must exist and be non-empty
+	parts := strings.SplitN(modelID, "/", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	hfHome := serverHFHome()
+	cachePath := filepath.Join(hfHome, "hub",
+		fmt.Sprintf("models--%s--%s", parts[0], parts[1]),
+		"snapshots",
+	)
+	entries, err := os.ReadDir(cachePath)
+	return err == nil && len(entries) > 0
+}
+
+func (s *Server) checkModelStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if strings.TrimSpace(id) == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"downloaded": isModelDownloaded(id)})
+}
+
+func (s *Server) startModelDownload(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.ID) == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	modelID := strings.TrimSpace(req.ID)
+
+	// If already in progress, return status immediately
+	if existing, ok := globalModelDownloadJobs.Load(modelID); ok {
+		job := existing.(*modelDownloadJob)
+		if job.status == "downloading" {
+			writeJSON(w, http.StatusOK, map[string]string{
+				"download_id": modelID,
+				"status":      "already_downloading",
+			})
+			return
+		}
+	}
+
+	pythonPath := s.gen.GetPythonPath()
+	if pythonPath == "" {
+		writeError(w, http.StatusServiceUnavailable,
+			"Python runtime not ready. Run bootstrap first from Setup.")
+		return
+	}
+
+	job := &modelDownloadJob{status: "downloading"}
+	globalModelDownloadJobs.Store(modelID, job)
+
+	go func() {
+		script := fmt.Sprintf(
+			"from huggingface_hub import snapshot_download; snapshot_download(%q)",
+			modelID,
+		)
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Hour)
+		defer cancel()
+
+		hfHome := serverHFHome()
+		cmd := exec.CommandContext(ctx, pythonPath, "-c", script)
+		cmd.Env = append(os.Environ(), "HF_HOME="+hfHome)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			msg := strings.TrimSpace(string(output))
+			if msg == "" {
+				msg = err.Error()
+			}
+			if len(msg) > 2000 {
+				msg = msg[len(msg)-2000:]
+			}
+			job.status = "error"
+			job.message = msg
+		} else {
+			job.status = "done"
+		}
+		globalModelDownloadJobs.Store(modelID, job)
+	}()
+
+	writeJSON(w, http.StatusOK, map[string]string{"download_id": modelID})
+}
+
+func (s *Server) modelDownloadProgress(w http.ResponseWriter, r *http.Request) {
+	rawID := r.URL.Query().Get("id")
+	id, err := url.QueryUnescape(rawID)
+	if err != nil || strings.TrimSpace(id) == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	if entry, ok := globalModelDownloadJobs.Load(id); ok {
+		job := entry.(*modelDownloadJob)
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  job.status,
+			"message": job.message,
+		})
+	} else {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "not_found"})
+	}
+}
 
 func ollamaURLCandidates(configured string) []string {
 	configured = strings.TrimRight(strings.TrimSpace(configured), "/")
@@ -28,16 +168,18 @@ func ollamaURLCandidates(configured string) []string {
 
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	models := []map[string]string{
-		{
-			"id":   "microsoft/VibeVoice-1.5b",
-			"name": "VibeVoice 1.5B (recomendado)",
-			"size": "~6 GB",
-		},
-		{
-			"id":   "microsoft/VibeVoice-7b",
-			"name": "VibeVoice 7B",
-			"size": "~28 GB",
-		},
+		{"id": "microsoft/VibeVoice-1.5b", "name": "VibeVoice 1.5B (recomendado)", "size": "~6 GB"},
+		{"id": "aoi-ot/VibeVoice-Large", "name": "VibeVoice Large (máx. calidad)", "size": "~18.7 GB"},
+		{"id": "FabioSarracino/VibeVoice-Large-Q8", "name": "VibeVoice Large Q8 (equilibrado)", "size": "~11.6 GB"},
+		{"id": "DevParker/VibeVoice7b-low-vram", "name": "VibeVoice Large Q4 (VRAM reducida)", "size": "~6.6 GB"},
+	}
+
+	for _, cm := range s.cfg.CustomModels() {
+		models = append(models, map[string]string{
+			"id":   cm.ID,
+			"name": cm.Name,
+			"size": cm.Size,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, models)
@@ -214,4 +356,219 @@ func (s *Server) browseFolders(w http.ResponseWriter, r *http.Request) {
 		"parent":  parent,
 		"folders": folders,
 	})
+}
+
+// ── Narrators CRUD ─────────────────────────────────────────────────
+
+func (s *Server) listNarrators(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.cfg.Narrators())
+}
+
+func (s *Server) createOrUpdateNarrator(w http.ResponseWriter, r *http.Request) {
+	var n config.NarratorConfig
+	if err := json.NewDecoder(r.Body).Decode(&n); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(n.Key) == "" {
+		writeError(w, http.StatusBadRequest, "key is required")
+		return
+	}
+	if n.SpeakerSlot <= 0 {
+		n.SpeakerSlot = 1
+	}
+
+	list := s.cfg.Narrators()
+	found := false
+	for i := range list {
+		if list[i].Key == n.Key {
+			list[i] = n
+			found = true
+			break
+		}
+	}
+	if !found {
+		list = append(list, n)
+	}
+	if n.IsPrincipal {
+		for i := range list {
+			if list[i].Key != n.Key {
+				list[i].IsPrincipal = false
+			}
+		}
+	}
+	if err := s.cfg.SetNarrators(list); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) updateNarrator(w http.ResponseWriter, r *http.Request) {
+	key := extractServerPathParam(r.URL.Path, "narrators")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "key required")
+		return
+	}
+	var patch map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	list := s.cfg.Narrators()
+	idx := -1
+	for i, n := range list {
+		if n.Key == key {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		writeError(w, http.StatusNotFound, "narrator not found")
+		return
+	}
+	if v, ok := patch["name"].(string); ok {
+		list[idx].Name = v
+	}
+	if v, ok := patch["voice"].(string); ok {
+		list[idx].Voice = v
+	}
+	if v, ok := patch["speaker_slot"].(float64); ok {
+		list[idx].SpeakerSlot = int(v)
+	}
+	if v, ok := patch["is_principal"].(bool); ok {
+		list[idx].IsPrincipal = v
+		if v {
+			for i := range list {
+				if i != idx {
+					list[i].IsPrincipal = false
+				}
+			}
+		}
+	}
+	if v, ok := patch["key"].(string); ok && v != "" {
+		list[idx].Key = v
+	}
+	if err := s.cfg.SetNarrators(list); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list[idx])
+}
+
+func (s *Server) deleteNarrator(w http.ResponseWriter, r *http.Request) {
+	key := extractServerPathParam(r.URL.Path, "narrators")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "key required")
+		return
+	}
+	list := s.cfg.Narrators()
+	out := make([]config.NarratorConfig, 0, len(list))
+	for _, n := range list {
+		if n.Key != key {
+			out = append(out, n)
+		}
+	}
+	if err := s.cfg.SetNarrators(out); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) setPrincipalNarrator(w http.ResponseWriter, r *http.Request) {
+	// Path: /narrators/{key}/set-principal — key is between /narrators/ and /set-principal
+	rest := strings.TrimPrefix(r.URL.Path, "/narrators/")
+	rest = strings.TrimSuffix(rest, "/set-principal")
+	key := strings.TrimSpace(rest)
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "key required")
+		return
+	}
+	list := s.cfg.Narrators()
+	found := false
+	for i := range list {
+		if list[i].Key == key {
+			list[i].IsPrincipal = true
+			found = true
+		} else {
+			list[i].IsPrincipal = false
+		}
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "narrator not found")
+		return
+	}
+	if err := s.cfg.SetNarrators(list); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// ── Custom Models CRUD ─────────────────────────────────────────────
+
+func (s *Server) addCustomModel(w http.ResponseWriter, r *http.Request) {
+	var cm config.CustomModel
+	if err := json.NewDecoder(r.Body).Decode(&cm); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if strings.TrimSpace(cm.ID) == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	if cm.Name == "" {
+		cm.Name = cm.ID
+	}
+	list := s.cfg.CustomModels()
+	found := false
+	for i := range list {
+		if list[i].ID == cm.ID {
+			list[i] = cm
+			found = true
+			break
+		}
+	}
+	if !found {
+		list = append(list, cm)
+	}
+	if err := s.cfg.SetCustomModels(list); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) deleteCustomModel(w http.ResponseWriter, r *http.Request) {
+	raw := extractServerPathParam(r.URL.Path, "models")
+	id, err := url.QueryUnescape(raw)
+	if err != nil || id == "" {
+		writeError(w, http.StatusBadRequest, "id required")
+		return
+	}
+	list := s.cfg.CustomModels()
+	out := make([]config.CustomModel, 0, len(list))
+	for _, m := range list {
+		if m.ID != id {
+			out = append(out, m)
+		}
+	}
+	if err := s.cfg.SetCustomModels(out); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func extractServerPathParam(urlPath, after string) string {
+	parts := strings.Split(urlPath, "/"+after+"/")
+	if len(parts) < 2 {
+		return ""
+	}
+	seg := parts[1]
+	if idx := strings.Index(seg, "/"); idx >= 0 {
+		seg = seg[:idx]
+	}
+	return seg
 }

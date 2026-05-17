@@ -1,0 +1,4 @@
+C:/Users/the_h/PycharmProjects/TrueVoice/rFactor2_plugins/build/CMakeFiles/TrueVoicePlugin.dir
+C:/Users/the_h/PycharmProjects/TrueVoice/rFactor2_plugins/build/CMakeFiles/INSTALL.dir
+C:/Users/the_h/PycharmProjects/TrueVoice/rFactor2_plugins/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/the_h/PycharmProjects/TrueVoice/rFactor2_plugins/build/CMakeFiles/ZERO_CHECK.dir

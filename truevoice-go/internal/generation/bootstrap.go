@@ -308,6 +308,7 @@ func (m *Manager) installPythonDependencies(py string) error {
 		"absl-py",
 		"ml-collections",
 		"av",
+		"bitsandbytes>=0.48.1",
 	); err != nil {
 		return err
 	}

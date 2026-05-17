@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback, Component, ReactNode } from "react";
+import React, { useEffect, useState, useRef, useCallback, useMemo, Component, ReactNode } from "react";
 import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useRaceStore } from "../src/stores/useRaceStore";
@@ -12,6 +12,7 @@ import {
   deleteOutputs,
   raceExportCSV,
   getContextState,
+  type NarratorConfig,
 } from "../src/api";
 
 const EVENT_TYPE_LABELS: Record<number, string> = {
@@ -134,6 +135,107 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
+/* ── Tag insertion bar ─────────────────────────────────────────────── */
+function TagBar({ narrators }: { narrators: Pick<NarratorConfig, "key" | "name">[] }) {
+  const lastElRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastPosRef = useRef({ start: 0, end: 0 });
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLTextAreaElement;
+      if (el && el.tagName === "TEXTAREA") {
+        lastElRef.current = el;
+        lastPosRef.current = { start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 };
+      }
+    };
+    const onSelChange = () => {
+      const el = lastElRef.current;
+      if (el && document.activeElement === el) {
+        lastPosRef.current = { start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 };
+      }
+    };
+    document.addEventListener("focus", onFocus, true);
+    document.addEventListener("selectionchange", onSelChange);
+    document.addEventListener("mouseup", onSelChange);
+    document.addEventListener("keyup", onSelChange);
+    return () => {
+      document.removeEventListener("focus", onFocus, true);
+      document.removeEventListener("selectionchange", onSelChange);
+      document.removeEventListener("mouseup", onSelChange);
+      document.removeEventListener("keyup", onSelChange);
+    };
+  }, []);
+
+  const insertTag = useCallback((tag: string) => {
+    const el = lastElRef.current;
+    if (!el) return;
+    const { start, end } = lastPosRef.current;
+    const before = el.value.substring(0, start);
+    const after = el.value.substring(end);
+    const newValue = before + tag + after;
+    const proto = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
+    if (proto?.set) {
+      proto.set.call(el, newValue);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    } else {
+      el.value = newValue;
+    }
+    const newPos = start + tag.length;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(newPos, newPos);
+      lastPosRef.current = { start: newPos, end: newPos };
+    });
+  }, []);
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        backgroundColor: colors.surfaceLight,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        gap: 4,
+        minHeight: 36,
+      }}
+    >
+      <Pressable
+        onPress={() => insertTag("[pause]")}
+        style={{
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          backgroundColor: colors.surface,
+          borderRadius: 4,
+          borderWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
+        <Text style={{ color: colors.textDim, fontSize: 12 }}>⏸ pause</Text>
+      </Pressable>
+      {narrators.map((n) => (
+        <Pressable
+          key={n.key}
+          onPress={() => insertTag(`[${n.key}]: `)}
+          style={{
+            paddingHorizontal: 10,
+            paddingVertical: 4,
+            backgroundColor: colors.surface,
+            borderRadius: 4,
+            borderWidth: 1,
+            borderColor: colors.accent,
+          }}
+        >
+          <Text style={{ color: colors.accent, fontSize: 12 }}>👤 {n.name}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 /* ── Error boundary ────────────────────────────────────────────────── */
 class RaceErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null };
@@ -190,6 +292,10 @@ function CarreraContent() {
   const [editTimestamp, setEditTimestamp] = useState("");
   const [editSummary, setEditSummary] = useState("");
 
+  // Lap collapsibles state
+  const [collapsedLaps, setCollapsedLaps] = useState<Set<number>>(new Set());
+  const prevSessionKeyRef = useRef("");
+
   const refreshContextInUse = useCallback(async () => {
     setContextStateLoading(true);
     setContextStateError("");
@@ -203,6 +309,33 @@ function CarreraContent() {
       setContextStateLoading(false);
     }
   }, []);
+
+  // Group visible events by lap number
+  const eventsByLap = useMemo(() => {
+    const groups = new Map<number, Array<{ idx: number; ev: (typeof store.events)[0] }>>();
+    store.events.forEach((ev, idx) => {
+      if (!store.hiddenEventIndices.has(idx) || showHidden) {
+        if (!groups.has(ev.lap)) groups.set(ev.lap, []);
+        groups.get(ev.lap)!.push({ idx, ev });
+      }
+    });
+    return groups;
+  }, [store.events, store.hiddenEventIndices, showHidden]);
+
+  // Collapse all laps when a new session / XML is loaded
+  useEffect(() => {
+    const key = `${store.currentSession || ""}:${store.header?.track_event || ""}`;
+    if (key !== ":" && key !== prevSessionKeyRef.current) {
+      prevSessionKeyRef.current = key;
+      if (store.events.length > 0) {
+        setCollapsedLaps(new Set(store.events.map((ev) => ev.lap)));
+      }
+    }
+    if (store.events.length === 0 && prevSessionKeyRef.current !== "") {
+      prevSessionKeyRef.current = "";
+      setCollapsedLaps(new Set());
+    }
+  }, [store.currentSession, store.header?.track_event]);
 
   // Generic auto-resize for any textarea node
   const autoResizeEl = useCallback((raw: any, minHeight = 40) => {
@@ -638,6 +771,7 @@ function CarreraContent() {
 
   return (
     <View style={{ flex: 1 }}>
+      <TagBar narrators={config.narrators || []} />
       <ScrollView
         ref={scrollRef}
         style={shared.screen}
@@ -916,18 +1050,71 @@ function CarreraContent() {
               </View>
             )}
 
-            {/* Event list */}
-            {store.events.map((ev, idx) =>
-              !store.hiddenEventIndices.has(idx) || showHidden ? (
-                <View
-                  key={idx}
-                  style={{
-                    borderBottomWidth: 1,
-                    borderBottomColor: colors.border,
-                    paddingVertical: 8,
-                    opacity: store.hiddenEventIndices.has(idx) ? 0.55 : 1,
-                  }}
-                >
+            {/* Event list grouped by lap */}
+            {Array.from(eventsByLap.entries())
+              .sort(([a], [b]) => a - b)
+              .map(([lap, evs]) => (
+                <View key={lap} style={{ marginBottom: 4 }}>
+                  {/* Lap header */}
+                  <Pressable
+                    onPress={() =>
+                      setCollapsedLaps((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(lap)) next.delete(lap);
+                        else next.add(lap);
+                        return next;
+                      })
+                    }
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingVertical: 8,
+                      paddingHorizontal: 8,
+                      backgroundColor: colors.surfaceLight,
+                      borderRadius: 4,
+                      marginBottom: 2,
+                    }}
+                  >
+                    <Text style={{ color: colors.primary, fontWeight: "700", marginRight: 8, width: 14 }}>
+                      {collapsedLaps.has(lap) ? "▶" : "▼"}
+                    </Text>
+                    <Text style={{ color: colors.primary, fontWeight: "700", flex: 1 }}>
+                      Vuelta {lap}
+                      {(() => {
+                        const counts = evs.reduce((acc, { ev }) => {
+                          const type = EVENT_TYPE_LABELS[ev.event_type] || `Tipo ${ev.event_type}`;
+                          acc[type] = (acc[type] || 0) + 1;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        const summary = Object.entries(counts)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([type, count]) => `${count}× ${type}`)
+                          .join(", ");
+                        return summary ? (
+                          <Text style={{ color: colors.textDim, fontWeight: "400", fontSize: 12, marginLeft: 8 }}>
+                            ({evs.length} evento{evs.length !== 1 ? "s" : ""}: {summary})
+                          </Text>
+                        ) : (
+                          <Text style={{ color: colors.textDim, fontWeight: "400", fontSize: 12, marginLeft: 8 }}>
+                            ({evs.length} evento{evs.length !== 1 ? "s" : ""})
+                          </Text>
+                        );
+                      })()}
+                    </Text>
+                  </Pressable>
+
+                  {/* Lap events */}
+                  {!collapsedLaps.has(lap) &&
+                    evs.map(({ idx, ev }) => (
+                      <View
+                        key={idx}
+                        style={{
+                          borderBottomWidth: 1,
+                          borderBottomColor: colors.border,
+                          paddingVertical: 8,
+                          opacity: store.hiddenEventIndices.has(idx) ? 0.55 : 1,
+                        }}
+                      >
                   {/* Event header row */}
                   <View style={shared.row}>
                     <Pressable onPress={() => store.toggleEventSelected(idx)} style={{ marginRight: 6 }}>
@@ -950,7 +1137,7 @@ function CarreraContent() {
 
                   {/* Description input */}
                   <TextInput
-                    key={`event-desc-${idx}-${(ev.description || "").length}-${(ev.description || "").slice(0, 16)}`}
+                    key={`event-desc-${idx}`}
                     ref={(el) => {
                       eventTextInputRefs.current[idx] = el;
                       requestAnimationFrame(() => autoResizeEl(el, 40));
@@ -1094,13 +1281,42 @@ function CarreraContent() {
                       </View>
                     ))}
                 </View>
-              ) : null,
-            )}
+              ))}
+                </View>
+              ))}
           </View>
         )}
 
         <View style={{ height: 16 }} />
       </ScrollView>
+
+      {/* ── Floating collapse/expand all button ─────────────────────── */}
+      {store.events.length > 0 && (
+        <View style={{ position: "absolute", left: 16, bottom: 16, zIndex: 1000 }}>
+          <Pressable
+            style={[
+              shared.button,
+              {
+                backgroundColor: "#9575cd",
+                borderWidth: 1,
+                borderColor: "#9575cd",
+                minWidth: 160,
+              },
+            ]}
+            onPress={() => {
+              if (collapsedLaps.size === 0) {
+                setCollapsedLaps(new Set(eventsByLap.keys()));
+              } else {
+                setCollapsedLaps(new Set());
+              }
+            }}
+          >
+            <Text style={[shared.buttonText, { color: colors.text }]}>
+              {collapsedLaps.size === 0 ? "▼ Colapsar vueltas" : "▶ Expandir vueltas"}
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* ── Floating CSV save button ──────────────────────────────── */}
       <View style={{ position: "absolute", right: 16, bottom: 16 }}>

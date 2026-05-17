@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -10,17 +10,37 @@ import {
 } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
-import { useVoiceStore } from "../src/stores/useVoiceStore";
-import { ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus, browseDrives, browseFolders } from "../src/api";
+import {
+  ollamaListModels, getSetupStatus, bootstrapSetup, SetupStatus,
+  browseDrives, browseFolders, listModels, type ModelInfo,
+  checkModelStatus, startModelDownload, getModelDownloadProgress,
+} from "../src/api";
 
 let settingsScrollMemory = 0;
 
-const MODEL_OPTIONS = [
-  { label: "VibeVoice 1.5B (recomendado)", value: "microsoft/VibeVoice-1.5b" },
-  { label: "VibeVoice 7B", value: "microsoft/VibeVoice-7b" },
+const DEFAULT_MODEL_OPTIONS: ModelInfo[] = [
+  { id: "microsoft/VibeVoice-1.5b", name: "VibeVoice 1.5B (recomendado)", size: "~6 GB" },
+];
+
+const QUANTIZE_OPTIONS = [
+  { value: "none", label: "Precisión completa" },
+  { value: "4bit", label: "4-bit (ahorro VRAM, req. GPU CUDA)" },
+  { value: "8bit", label: "8-bit (equilibrado, req. GPU CUDA)" },
 ];
 
 const FORMAT_OPTIONS = ["wav", "mp3", "flac", "ogg"];
+
+const PARAM_HELP: Record<string, string> = {
+  cfg_scale: "CFG Scale controla la adherencia al prompt. Valores más altos (3-5) hacen que el modelo siga más fielmente las características de la voz de referencia, pero pueden reducir la calidad. Valores bajos (1-2) dan más libertad al modelo. Recomendado: 3.0",
+  ddpm_steps: "Pasos de difusión DDPM. Más pasos mejoran la calidad del audio pero aumentan el tiempo de generación. Valores típicos: 25-100. Menos pasos generan más rápido pero con menor calidad.",
+  disable_prefill: "Desactiva la clonación de voz (prefill). Cuando está activado, el modelo ignora la voz de referencia y genera con su voz base. Útil para comparar o depurar.",
+  voice_speed_factor: "Factor de velocidad aplicado a la voz de referencia antes de la síntesis. 1.0 = velocidad original. Valores < 1.0 ralentizan, > 1.0 aceleran. Rango recomendado: 0.8 - 1.2",
+  max_words_per_chunk: "Número máximo de palabras por bloque de generación. Textos largos se dividen automáticamente en bloques más pequeños para evitar errores de memoria. Mayor valor = bloques más grandes pero más riesgo de fallo.",
+  quantize_llm: "Cuantización reduce el uso de VRAM/RAM cargando el modelo en menor precisión. 4-bit usa ~50% menos VRAM, 8-bit ~30% menos. Solo funciona en GPU CUDA. Puede reducir ligeramente la calidad.",
+  use_sampling: "Modo sampling activa generación probabilística en lugar de determinista. Con sampling activo, cada generación puede dar resultados ligeramente diferentes (más creatividad/variación). Sin sampling, mismo texto + voz = mismo audio.",
+  temperature: "Controla la aleatoriedad en el sampling. Valores bajos (0.1-0.5) = más conservador y predecible. Valores altos (1.0-2.0) = más variado y creativo, pero puede generar artefactos. Solo activo si sampling está activado.",
+  top_p: "Nucleus sampling (Top-p). Solo considera tokens cuya probabilidad acumulada sea <= p. Top-p=0.95 considera el 95% más probable, ignorando opciones muy improbables. Reduce incoherencias. Solo activo si sampling está activado.",
+};
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -38,6 +58,8 @@ function Slider({
   max,
   step,
   onChange,
+  helpText,
+  onHelpPress,
 }: {
   label: string;
   value: number;
@@ -45,12 +67,33 @@ function Slider({
   max: number;
   step: number;
   onChange: (v: number) => void;
+  helpText?: string;
+  onHelpPress?: (text: string) => void;
 }) {
   return (
     <View style={{ marginBottom: 12 }}>
-      <Text style={{ color: colors.textDim, marginBottom: 4 }}>
-        {label}: <Text style={{ color: colors.primary }}>{value}</Text>
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+        <Text style={{ color: colors.textDim }}>
+          {label}: <Text style={{ color: colors.primary }}>{value}</Text>
+        </Text>
+        {helpText && onHelpPress && (
+          <Pressable
+            onPress={() => onHelpPress(helpText)}
+            style={{
+              marginLeft: 6,
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>?</Text>
+          </Pressable>
+        )}
+      </View>
       <input
         type="range"
         min={min}
@@ -199,16 +242,45 @@ function FolderPicker({
 
 export default function SettingsScreen() {
   const { config, loading, patch } = useConfigStore();
-  const { voices, fetch: fetchVoices } = useVoiceStore();
+  const addCustomModel = useConfigStore((s) => s.addCustomModel);
+  const deleteCustomModel = useConfigStore((s) => s.deleteCustomModel);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaLoading, setOllamaLoading] = useState(false);
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [setupLoading, setSetupLoading] = useState(false);
   const [showAudioFolderPicker, setShowAudioFolderPicker] = useState(false);
+  const [modelOptions, setModelOptions] = useState<ModelInfo[]>(DEFAULT_MODEL_OPTIONS);
+  const [newModelId, setNewModelId] = useState("");
+  const [newModelName, setNewModelName] = useState("");
   const scrollRef = React.useRef<any>(null);
 
+  // Model download modal state
+  const [downloadModal, setDownloadModal] = useState<{
+    model: ModelInfo;
+    status: "confirm" | "downloading" | "done" | "error";
+    error?: string;
+  } | null>(null);
+  const downloadPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Help modal state
+  const [helpModal, setHelpModal] = useState<string | null>(null);
+
+  // Cleanup poll on unmount
   useEffect(() => {
-    fetchVoices();
+    return () => {
+      if (downloadPollRef.current) clearInterval(downloadPollRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await listModels();
+        if (Array.isArray(data) && data.length > 0) setModelOptions(data);
+      } catch {
+        /* keep defaults */
+      }
+    })();
   }, []);
 
   const refreshOllamaModels = useCallback(async () => {
@@ -245,6 +317,61 @@ export default function SettingsScreen() {
     }
   }, [refreshSetupStatus]);
 
+  const handleModelSelect = useCallback(async (m: ModelInfo) => {
+    try {
+      const { data } = await checkModelStatus(m.id);
+      if (data.downloaded) {
+        patch({ selected_model: m.id, selected_model_name: m.name });
+      } else {
+        setDownloadModal({ model: m, status: "confirm" });
+      }
+    } catch {
+      // If we can't check, just select it
+      patch({ selected_model: m.id, selected_model_name: m.name });
+    }
+  }, [patch]);
+
+  const handleStartDownload = useCallback(async () => {
+    if (!downloadModal) return;
+    const m = downloadModal.model;
+    setDownloadModal({ model: m, status: "downloading" });
+    try {
+      await startModelDownload(m.id);
+      downloadPollRef.current = setInterval(async () => {
+        try {
+          const { data } = await getModelDownloadProgress(m.id);
+          if (data.status === "done") {
+            if (downloadPollRef.current) {
+              clearInterval(downloadPollRef.current);
+              downloadPollRef.current = null;
+            }
+            patch({ selected_model: m.id, selected_model_name: m.name });
+            setDownloadModal({ model: m, status: "done" });
+            setTimeout(() => setDownloadModal(null), 2500);
+          } else if (data.status === "error") {
+            if (downloadPollRef.current) {
+              clearInterval(downloadPollRef.current);
+              downloadPollRef.current = null;
+            }
+            setDownloadModal({
+              model: m,
+              status: "error",
+              error: data.message || "Error desconocido",
+            });
+          }
+        } catch {
+          /* keep polling */
+        }
+      }, 5000);
+    } catch (e: any) {
+      setDownloadModal({
+        model: m,
+        status: "error",
+        error: e?.message || "Error al iniciar descarga",
+      });
+    }
+  }, [downloadModal, patch]);
+
   useEffect(() => {
     refreshSetupStatus();
   }, []);
@@ -269,20 +396,20 @@ export default function SettingsScreen() {
   }
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
       <Text style={shared.title}>⚙️ Configuración</Text>
 
-      {/* Voice */}
-      <Section title="Voz">
-        <Text style={{ color: colors.textDim, marginBottom: 6 }}>Voz seleccionada</Text>
+      {/* Model */}
+      <Section title="Modelo">
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          {voices.map((v) => (
+          {modelOptions.map((m) => (
             <Pressable
-              key={v.name}
-              onPress={() => patch({ selected_voice: v.name })}
+              key={m.id}
+              onPress={() => handleModelSelect(m)}
               style={[
                 shared.buttonSecondary,
-                config.selected_voice === v.name && { borderColor: colors.primary },
+                config.selected_model === m.id && { borderColor: colors.primary },
               ]}
             >
               <Text
@@ -290,44 +417,97 @@ export default function SettingsScreen() {
                   shared.buttonText,
                   {
                     color:
-                      config.selected_voice === v.name ? colors.primary : colors.text,
+                      config.selected_model === m.id ? colors.primary : colors.text,
                   },
                 ]}
               >
-                {v.alias || v.name}
+                {m.name} <Text style={{ color: colors.textDim, fontSize: 11 }}>({m.size})</Text>
               </Text>
             </Pressable>
           ))}
         </View>
       </Section>
 
-      {/* Model */}
-      <Section title="Modelo">
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          {MODEL_OPTIONS.map((m) => (
-            <Pressable
-              key={m.value}
-              onPress={() =>
-                patch({ selected_model: m.value, selected_model_name: m.label })
-              }
-              style={[
-                shared.buttonSecondary,
-                config.selected_model === m.value && { borderColor: colors.primary },
-              ]}
+      {/* Custom models */}
+      <Section title="Modelos personalizados">
+        <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 12 }}>
+          Añade modelos personalizados por su HF repo ID (ej: <Text style={{ color: colors.accent }}>microsoft/VibeVoice-1.5b</Text>) o ruta absoluta a una carpeta local.
+        </Text>
+
+        {(config.custom_models || []).length === 0 ? (
+          <Text style={{ color: colors.textDim, fontStyle: "italic", fontSize: 13, marginBottom: 12 }}>
+            No hay modelos personalizados.
+          </Text>
+        ) : (
+          (config.custom_models || []).map((m) => (
+            <View
+              key={m.id}
+              style={{
+                backgroundColor: colors.surfaceLight,
+                borderRadius: 6,
+                padding: 10,
+                marginBottom: 8,
+                borderWidth: 1,
+                borderColor: colors.border,
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
             >
-              <Text
-                style={[
-                  shared.buttonText,
-                  {
-                    color:
-                      config.selected_model === m.value ? colors.primary : colors.text,
-                  },
-                ]}
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: "600", fontSize: 14 }}>{m.name}</Text>
+                <Text style={{ color: colors.textDim, fontSize: 11 }}>{m.id}  ·  {m.size}</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  if (window.confirm(`¿Eliminar modelo "${m.name}"?`)) deleteCustomModel(m.id);
+                }}
+                style={{ paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: colors.error, borderRadius: 4 }}
               >
-                {m.label}
-              </Text>
-            </Pressable>
-          ))}
+                <Text style={{ color: colors.error, fontSize: 11, fontWeight: "600" }}>Eliminar</Text>
+              </Pressable>
+            </View>
+          ))
+        )}
+
+        <View style={{ marginTop: 8 }}>
+          <Text style={shared.label}>Nombre</Text>
+          <TextInput
+            style={shared.input}
+            value={newModelName}
+            onChangeText={setNewModelName}
+            placeholder="ej: VibeVoice Local"
+            placeholderTextColor={colors.textDim}
+          />
+          <Text style={shared.label}>ID / Ruta local</Text>
+          <TextInput
+            style={shared.input}
+            value={newModelId}
+            onChangeText={setNewModelId}
+            placeholder="microsoft/VibeVoice-1.5b o C:\modelos\mi_modelo"
+            placeholderTextColor={colors.textDim}
+            autoCapitalize="none"
+          />
+          <Pressable
+            onPress={async () => {
+              const id = newModelId.trim();
+              const name = newModelName.trim() || id;
+              if (!id) {
+                window.alert("Indica un ID o ruta");
+                return;
+              }
+              await addCustomModel({ id, name, size: "?" });
+              setNewModelId("");
+              setNewModelName("");
+              try {
+                const { data } = await listModels();
+                if (Array.isArray(data) && data.length > 0) setModelOptions(data);
+              } catch { /* */ }
+            }}
+            style={[shared.button, { alignSelf: "flex-start", minWidth: 160 }]}
+          >
+            <Text style={shared.buttonText}>Añadir modelo</Text>
+          </Pressable>
         </View>
       </Section>
 
@@ -365,6 +545,8 @@ export default function SettingsScreen() {
           max={5.0}
           step={0.1}
           onChange={(v) => patch({ cfg_scale: v })}
+          helpText={PARAM_HELP.cfg_scale}
+          onHelpPress={setHelpModal}
         />
         <Slider
           label="DDPM Steps"
@@ -373,6 +555,8 @@ export default function SettingsScreen() {
           max={200}
           step={1}
           onChange={(v) => patch({ ddpm_steps: v })}
+          helpText={PARAM_HELP.ddpm_steps}
+          onHelpPress={setHelpModal}
         />
         <Pressable
           onPress={() => patch({ disable_prefill: !config.disable_prefill })}
@@ -395,8 +579,157 @@ export default function SettingsScreen() {
               <Text style={{ color: colors.bg, fontSize: 12, fontWeight: "bold" }}>✓</Text>
             )}
           </View>
-          <Text style={{ color: colors.text }}>Desactivar clonación de voz (prefill)</Text>
+          <Text style={{ color: colors.text, flex: 1 }}>Desactivar clonación de voz (prefill)</Text>
+          <Pressable
+            onPress={() => setHelpModal(PARAM_HELP.disable_prefill)}
+            style={{
+              marginLeft: 6,
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>?</Text>
+          </Pressable>
         </Pressable>
+      </Section>
+
+      {/* Advanced generation */}
+      <Section title="Generación avanzada">
+        <Slider
+          label="Velocidad de voz"
+          value={config.voice_speed_factor ?? 1.0}
+          min={0.8}
+          max={1.2}
+          step={0.01}
+          onChange={(v) => patch({ voice_speed_factor: v })}
+          helpText={PARAM_HELP.voice_speed_factor}
+          onHelpPress={setHelpModal}
+        />
+        <Slider
+          label="Palabras por bloque (chunking)"
+          value={config.max_words_per_chunk ?? 250}
+          min={100}
+          max={500}
+          step={10}
+          onChange={(v) => patch({ max_words_per_chunk: v })}
+          helpText={PARAM_HELP.max_words_per_chunk}
+          onHelpPress={setHelpModal}
+        />
+
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6, marginTop: 4 }}>
+          <Text style={{ color: colors.textDim, flex: 1 }}>Cuantización LLM</Text>
+          <Pressable
+            onPress={() => setHelpModal(PARAM_HELP.quantize_llm)}
+            style={{
+              marginLeft: 6,
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>?</Text>
+          </Pressable>
+        </View>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+          {QUANTIZE_OPTIONS.map((q) => (
+            <Pressable
+              key={q.value}
+              onPress={() => patch({ quantize_llm: q.value })}
+              style={[
+                shared.buttonSecondary,
+                (config.quantize_llm || "none") === q.value && { borderColor: colors.primary },
+              ]}
+            >
+              <Text
+                style={[
+                  shared.buttonText,
+                  {
+                    color:
+                      (config.quantize_llm || "none") === q.value ? colors.primary : colors.text,
+                  },
+                ]}
+              >
+                {q.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 12 }}>
+          La cuantización solo funciona con GPU CUDA.
+        </Text>
+
+        <Pressable
+          onPress={() => patch({ use_sampling: !config.use_sampling })}
+          style={[shared.row, { marginBottom: 8 }]}
+        >
+          <View
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 4,
+              borderWidth: 2,
+              borderColor: config.use_sampling ? colors.primary : colors.border,
+              backgroundColor: config.use_sampling ? colors.primary : "transparent",
+              marginRight: 8,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            {config.use_sampling && (
+              <Text style={{ color: colors.bg, fontSize: 12, fontWeight: "bold" }}>✓</Text>
+            )}
+          </View>
+          <Text style={{ color: colors.text, flex: 1 }}>Modo sampling (variación creativa)</Text>
+          <Pressable
+            onPress={() => setHelpModal(PARAM_HELP.use_sampling)}
+            style={{
+              marginLeft: 6,
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: "700" }}>?</Text>
+          </Pressable>
+        </Pressable>
+
+        {config.use_sampling && (
+          <>
+            <Slider
+              label="Temperature"
+              value={config.temperature ?? 0.95}
+              min={0.1}
+              max={2.0}
+              step={0.05}
+              onChange={(v) => patch({ temperature: v })}
+              helpText={PARAM_HELP.temperature}
+              onHelpPress={setHelpModal}
+            />
+            <Slider
+              label="Top-p"
+              value={config.top_p ?? 0.95}
+              min={0.1}
+              max={1.0}
+              step={0.05}
+              onChange={(v) => patch({ top_p: v })}
+              helpText={PARAM_HELP.top_p}
+              onHelpPress={setHelpModal}
+            />
+          </>
+        )}
       </Section>
 
       {/* Output directory */}
@@ -504,5 +837,143 @@ export default function SettingsScreen() {
         title="Seleccionar carpeta de salida de audios"
       />
     </ScrollView>
+
+    {/* ── Model download modal ─────────────────────────────────── */}
+    {downloadModal && (
+      <Modal visible transparent animationType="fade">
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 8,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: colors.border,
+              maxWidth: 480,
+              width: "100%",
+            }}
+          >
+            {downloadModal.status === "confirm" && (
+              <>
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: 8 }}>
+                  Modelo no descargado
+                </Text>
+                <Text style={{ color: colors.textDim, marginBottom: 16 }}>
+                  {downloadModal.model.name}
+                  {downloadModal.model.size ? ` (${downloadModal.model.size})` : ""} no está en la caché local.{"\n\n"}
+                  ¿Deseas descargarlo ahora? Puede tardar varios minutos.
+                </Text>
+                <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
+                  <Pressable style={shared.buttonSecondary} onPress={() => setDownloadModal(null)}>
+                    <Text style={[shared.buttonText, { color: colors.text }]}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable style={shared.button} onPress={handleStartDownload}>
+                    <Text style={shared.buttonText}>Descargar</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+            {downloadModal.status === "downloading" && (
+              <>
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: 8 }}>
+                  Descargando modelo
+                </Text>
+                <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />
+                <Text style={{ color: colors.textDim, marginBottom: 4 }}>
+                  Descargando {downloadModal.model.name}...
+                </Text>
+                <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 12 }}>
+                  Esto puede tardar varios minutos dependiendo de tu conexión.
+                </Text>
+                <Pressable
+                  style={[shared.buttonSecondary, { alignSelf: "flex-start" }]}
+                  onPress={() => {
+                    if (downloadPollRef.current) {
+                      clearInterval(downloadPollRef.current);
+                      downloadPollRef.current = null;
+                    }
+                    setDownloadModal(null);
+                  }}
+                >
+                  <Text style={[shared.buttonText, { color: colors.text }]}>Cancelar</Text>
+                </Pressable>
+              </>
+            )}
+            {downloadModal.status === "done" && (
+              <>
+                <Text style={{ color: colors.success, fontSize: 16, fontWeight: "700" }}>
+                  ✓ Descarga completada
+                </Text>
+                <Text style={{ color: colors.textDim, marginTop: 8 }}>
+                  El modelo ha sido descargado y seleccionado.
+                </Text>
+              </>
+            )}
+            {downloadModal.status === "error" && (
+              <>
+                <Text style={{ color: colors.error, fontSize: 16, fontWeight: "700", marginBottom: 8 }}>
+                  Error en la descarga
+                </Text>
+                <Text style={{ color: colors.textDim, marginBottom: 16 }}>{downloadModal.error}</Text>
+                <Pressable style={shared.button} onPress={() => setDownloadModal(null)}>
+                  <Text style={shared.buttonText}>Cerrar</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+    )}
+
+    {/* ── Help modal ───────────────────────────────────────────── */}
+    {helpModal && (
+      <Modal visible transparent animationType="fade">
+        <Pressable
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+          onPress={() => setHelpModal(null)}
+        >
+          <Pressable
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 8,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: colors.border,
+              maxWidth: 500,
+              width: "100%",
+            }}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={{ color: colors.primary, fontSize: 16, fontWeight: "700", marginBottom: 12 }}>
+              ℹ️ Información del parámetro
+            </Text>
+            <Text style={{ color: colors.text, lineHeight: 20, marginBottom: 16 }}>
+              {helpModal}
+            </Text>
+            <Pressable
+              style={[shared.button, { alignSelf: "flex-end" }]}
+              onPress={() => setHelpModal(null)}
+            >
+              <Text style={shared.buttonText}>Entendido</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    )}
+    </View>
   );
 }

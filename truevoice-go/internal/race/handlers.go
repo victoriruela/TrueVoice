@@ -532,7 +532,7 @@ func callOllama(ollamaURL, model, prompt string, temp float64, seed int) string 
 	}
 	raw, _ := json.Marshal(body)
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 180 * time.Second}
 	resp, err := client.Post(ollamaURL+"/api/generate", "application/json",
 		strings.NewReader(string(raw)))
 	if err != nil {

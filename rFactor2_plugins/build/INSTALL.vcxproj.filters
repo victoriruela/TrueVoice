@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\the_h\PycharmProjects\TrueVoice\rFactor2_plugins\build\CMakeFiles\eb9da5e323241d7835f8c64d645c72ce\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{EE5578B4-841B-3379-B4AF-66C917D44499}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

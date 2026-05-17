@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, ScrollView, Pressable, ActivityIndicator, Modal } from "react-native";
 import { shared, colors } from "../src/theme";
 import { useConfigStore } from "../src/stores/useConfigStore";
 import { useGenerationStore, GenerationTask } from "../src/stores/useGenerationStore";
 import { useVoiceStore } from "../src/stores/useVoiceStore";
-import { getAudioUrl, listOutputs, deleteOutputs, GenerateRequest } from "../src/api";
+import { getAudioUrl, listOutputs, deleteOutputs, GenerateRequest, type NarratorConfig } from "../src/api";
 import { useRaceStore } from "../src/stores/useRaceStore";
 
 let generateScrollMemory = 0;
@@ -28,6 +28,107 @@ function AudioPlayer({ audioId, directory }: { audioId: string; directory?: stri
   );
 }
 
+/* ── Tag insertion bar ─────────────────────────────────────────────── */
+function TagBar({ narrators }: { narrators: Pick<NarratorConfig, "key" | "name">[] }) {
+  const lastElRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastPosRef = useRef({ start: 0, end: 0 });
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLTextAreaElement;
+      if (el && el.tagName === "TEXTAREA") {
+        lastElRef.current = el;
+        lastPosRef.current = { start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 };
+      }
+    };
+    const onSelChange = () => {
+      const el = lastElRef.current;
+      if (el && document.activeElement === el) {
+        lastPosRef.current = { start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 };
+      }
+    };
+    document.addEventListener("focus", onFocus, true);
+    document.addEventListener("selectionchange", onSelChange);
+    document.addEventListener("mouseup", onSelChange);
+    document.addEventListener("keyup", onSelChange);
+    return () => {
+      document.removeEventListener("focus", onFocus, true);
+      document.removeEventListener("selectionchange", onSelChange);
+      document.removeEventListener("mouseup", onSelChange);
+      document.removeEventListener("keyup", onSelChange);
+    };
+  }, []);
+
+  const insertTag = useCallback((tag: string) => {
+    const el = lastElRef.current;
+    if (!el) return;
+    const { start, end } = lastPosRef.current;
+    const before = el.value.substring(0, start);
+    const after = el.value.substring(end);
+    const newValue = before + tag + after;
+    const proto = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
+    if (proto?.set) {
+      proto.set.call(el, newValue);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    } else {
+      el.value = newValue;
+    }
+    const newPos = start + tag.length;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(newPos, newPos);
+      lastPosRef.current = { start: newPos, end: newPos };
+    });
+  }, []);
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        backgroundColor: colors.surfaceLight,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        gap: 4,
+        minHeight: 36,
+      }}
+    >
+      <Pressable
+        onPress={() => insertTag("[pause]")}
+        style={{
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          backgroundColor: colors.surface,
+          borderRadius: 4,
+          borderWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
+        <Text style={{ color: colors.textDim, fontSize: 12 }}>⏸ pause</Text>
+      </Pressable>
+      {narrators.map((n) => (
+        <Pressable
+          key={n.key}
+          onPress={() => insertTag(`[${n.key}]: `)}
+          style={{
+            paddingHorizontal: 10,
+            paddingVertical: 4,
+            backgroundColor: colors.surface,
+            borderRadius: 4,
+            borderWidth: 1,
+            borderColor: colors.accent,
+          }}
+        >
+          <Text style={{ color: colors.accent, fontSize: 12 }}>👤 {n.name}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 function TaskCard({
   task,
   isSelected,
@@ -41,6 +142,7 @@ function TaskCard({
   const { updateTask, generate, save, removeTask } = useGenerationStore();
   const removeAudioReferencesByIds = useRaceStore((s) => s.removeAudioReferencesByIds);
   const [now, setNow] = useState(() => Date.now());
+  const [showFormatHint, setShowFormatHint] = useState(false);
   const textAreaRef = useRef<any>(null);
 
   const getScrollParent = useCallback((el: any): any => {
@@ -152,6 +254,24 @@ function TaskCard({
         </Pressable>
       </View>
 
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+        <Text style={[shared.label, { marginBottom: 0, flex: 1 }]}>Texto a sintetizar</Text>
+        <Pressable
+          onPress={() => setShowFormatHint(true)}
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 11,
+            borderWidth: 1,
+            borderColor: colors.primary,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>i</Text>
+        </Pressable>
+      </View>
+
       <TextInput
         ref={textAreaRef}
         style={[shared.textArea, { minHeight: 120, overflow: "hidden" }]}
@@ -164,6 +284,84 @@ function TaskCard({
         multiline
         scrollEnabled={false}
       />
+
+      <Modal
+        visible={showFormatHint}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFormatHint(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 8,
+              padding: 20,
+              borderWidth: 1,
+              borderColor: colors.border,
+              maxWidth: 520,
+              width: "100%",
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: 8 }}>
+              Formato multi-speaker
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 13, marginBottom: 8 }}>
+              Para narraciones con varias voces, usa el formato:
+            </Text>
+            <View
+              style={{
+                backgroundColor: colors.surfaceLight,
+                padding: 12,
+                borderRadius: 6,
+                marginBottom: 12,
+              }}
+            >
+              <Text style={{ color: colors.text, fontFamily: "monospace", fontSize: 13 }}>
+                Speaker 1: Buenos días a todos{"\n"}
+                Speaker 2: Y bienvenidos al Gran Premio de Japón
+              </Text>
+            </View>
+            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>
+              También puedes usar <Text style={{ color: colors.accent }}>[clave]:</Text> con las claves de los narradores configurados en Voces.
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 4 }}>
+              Etiqueta <Text style={{ color: colors.accent }}>[pause:1000]</Text> para insertar 1 segundo de silencio.
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 12, marginBottom: 16 }}>
+              Los textos largos se dividen automáticamente en bloques (configurable en Ajustes).
+            </Text>
+
+            <View style={{ flexDirection: "row", gap: 8, justifyContent: "flex-end" }}>
+              <Pressable
+                onPress={() => {
+                  const example =
+                    "Speaker 1: Buenos días a todos.\nSpeaker 2: Y bienvenidos al Gran Premio de Japón.";
+                  updateTask(task.id, { text: example });
+                  setShowFormatHint(false);
+                }}
+                style={[shared.buttonSecondary, { marginBottom: 0 }]}
+              >
+                <Text style={[shared.buttonText, { color: colors.primary }]}>Insertar ejemplo</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setShowFormatHint(false)}
+                style={[shared.button, { marginBottom: 0 }]}
+              >
+                <Text style={shared.buttonText}>Cerrar</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {task.status === "generating" && (
         <View style={[shared.row, { marginBottom: 8 }]}>
@@ -257,7 +455,9 @@ export default function GenerateScreen() {
   }, []);
 
   return (
-    <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
+    <View style={{ flex: 1 }}>
+      <TagBar narrators={config.narrators || []} />
+      <ScrollView ref={scrollRef} style={shared.screen} onScroll={onScroll} scrollEventThrottle={16}>
       <Text style={shared.title}>🗣️ Generar Audio</Text>
 
       {tasks.map((task) => (
@@ -297,5 +497,6 @@ export default function GenerateScreen() {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </View>
   );
 }

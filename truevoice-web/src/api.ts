@@ -38,6 +38,43 @@ export interface ModelInfo {
   size: string;
 }
 export const listModels = () => api.get<ModelInfo[]>("/models");
+export const checkModelStatus = (id: string) =>
+  api.get<{ downloaded: boolean }>("/models/check", { params: { id } });
+export const startModelDownload = (id: string) =>
+  api.post<{ download_id: string; status?: string }>("/models/download", { id });
+export const getModelDownloadProgress = (id: string) =>
+  api.get<{ status: string; message: string }>("/models/download-progress", {
+    params: { id: encodeURIComponent(id) },
+  });
+
+/* ── Custom Models ──────────────────────────────────────────────────── */
+export interface CustomModel {
+  id: string;
+  name: string;
+  size: string;
+}
+export const addCustomModel = (model: CustomModel) =>
+  api.post<CustomModel[]>("/models", model);
+export const deleteCustomModel = (id: string) =>
+  api.delete(`/models/${encodeURIComponent(id)}`);
+
+/* ── Narrators ──────────────────────────────────────────────────────── */
+export interface NarratorConfig {
+  key: string;
+  name: string;
+  voice: string;
+  is_principal: boolean;
+  speaker_slot: number;
+}
+export const listNarrators = () => api.get<NarratorConfig[]>("/narrators");
+export const upsertNarrator = (n: NarratorConfig) =>
+  api.post<NarratorConfig[]>("/narrators", n);
+export const updateNarratorApi = (key: string, patch: Partial<NarratorConfig>) =>
+  api.put<NarratorConfig>(`/narrators/${encodeURIComponent(key)}`, patch);
+export const deleteNarratorApi = (key: string) =>
+  api.delete(`/narrators/${encodeURIComponent(key)}`);
+export const setPrincipalNarratorApi = (key: string) =>
+  api.post<NarratorConfig[]>(`/narrators/${encodeURIComponent(key)}/set-principal`);
 
 /* ── Generation ─────────────────────────────────────────────────────── */
 export interface GenerateRequest {
@@ -51,6 +88,15 @@ export interface GenerateRequest {
   cfg_scale?: number;
   ddpm_steps?: number;
   disable_prefill?: boolean;
+  voice_speed_factor?: number;
+  max_words_per_chunk?: number;
+  quantize_llm?: string;
+  temperature?: number;
+  top_p?: number;
+  use_sampling?: boolean;
+  seed?: number | null;
+  multi_speaker?: boolean;
+  voice_names?: string[];
 }
 export interface GenerateResponse {
   success: boolean;
